@@ -1,4 +1,4 @@
-use std::{borrow::{Cow, BorrowMut}, time::Instant};
+use std::{borrow::{Cow}, time::Instant};
 
 use anyhow::{anyhow, bail, Result};
 
@@ -28,7 +28,7 @@ use wayland_client::{
 };
 use wgpu::{
     util::DeviceExt, BindGroup, Buffer, RenderPipeline, SurfaceConfiguration, SurfaceTexture,
-    TextureView,
+    TextureView, Surface, Device, Queue,
 };
 
 const UNIFORM_GROUP_ID: u32 = 0;
@@ -317,17 +317,21 @@ impl CompositorHandler for Wgpu {
         _surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
-        for output_surface in self.output_surfaces.iter() {
+        for output_surface in self.output_surfaces.iter_mut() {
+            match output_surface.render() {
+                Ok(_) => {},
+                Err(e) => {println!("{}", e)},
+            };
         }
     }
 }
 
 impl OutputSurface {
     fn render(&mut self) -> Result<()> {
-        match self.renderable.as_mut() {
+        match self.renderable {
             Some(ref mut r) => {
-                r.frame_start(self)?;
-                r.render(self)?;
+                r.frame_start(&mut self.surface)?;
+                r.render(&mut self.device, &self.output_info, &mut self.queue)?;
                 r.frame_finish()?;
             },
             None => {},
@@ -562,8 +566,8 @@ fn main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<
                 time_instant: Instant::now(),
             };
 
-            renderable.frame_start(output_surface).expect("first frame kablooey");
-            renderable.render(output_surface).expect("first frame kablooey");
+            renderable.frame_start(&mut output_surface.surface).expect("first frame kablooey");
+            renderable.render(&mut output_surface.device, &output_surface.output_info, &mut output_surface.queue).expect("first frame kablooey");
             renderable.frame_finish().expect("first frame kablooey");
 
             output_surface.renderable = Some(renderable);
@@ -619,13 +623,12 @@ impl Renderable {
     /// # Errors
     ///
     /// - Will return an error if [`Self::frame_finish`] haven't been called at the end of the last frame.
-    pub fn frame_start(&mut self, output_surface: &OutputSurface) -> Result<()> {
+    pub fn frame_start(&mut self, surface: &mut Surface) -> Result<()> {
         if self.surface_texture.is_some() {
             bail!("Non-finished wgpu::SurfaceTexture found.")
         }
 
-        let surface_texture = output_surface
-            .surface
+        let surface_texture = surface
             .get_current_texture()
             .expect("couldnt get texture");
 
@@ -643,7 +646,7 @@ impl Renderable {
         Ok(())
     }
 
-    fn render(&mut self, output_surface: &OutputSurface) -> Result<()> {
+    fn render(&mut self, device: &mut Device, output_info: &OutputInfo, queue: &mut Queue) -> Result<()> {
         if self.texture_view.is_none() {
             bail!("No actived wgpu::TextureView found.")
         }
@@ -651,22 +654,19 @@ impl Renderable {
         let view = self.texture_view.as_ref().unwrap();
 
         let mut encoder =
-            output_surface
-                .device
+            device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("Render Encoder"),
                 });
 
-        let (width, height) = output_surface
-            .output_info
+        let (width, height) = output_info
             .logical_size
             .expect("illogical size?");
 
         self.uniform.resolution = [width as f32, height as f32];
         self.uniform.time = self.time_instant.elapsed().as_secs_f32();
 
-        output_surface
-            .queue
+        queue
             .write_buffer(&self.uniform_buffer, 0, self.uniform.as_bytes());
 
         {
@@ -707,7 +707,7 @@ impl Renderable {
             render_pass.draw(0..3, 0..1);
         }
 
-        output_surface.queue.submit(Some(encoder.finish()));
+        queue.submit(Some(encoder.finish()));
 
         Ok(())
     }
