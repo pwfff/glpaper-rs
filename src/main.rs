@@ -1,4 +1,4 @@
-use std::{io, time::Duration, sync::{Arc, Mutex}};
+use std::{io, time::{Duration, Instant}, sync::{Arc, Mutex}, thread};
 
 use anyhow::{anyhow, Result};
 
@@ -61,9 +61,15 @@ async fn main() -> Result<()> {
 
     // TODO: this seems wrong...
     //let mut ugh = tokio::time::interval(Duration::from_millis(1000/10));
+    let start = Instant::now();
     loop {
-        //event_queue.dispatch_pending(&mut bg).unwrap();
-        event_queue.blocking_dispatch(&mut bg)?;
+        for os in oses.iter_mut() {
+            let mut os = os.lock().unwrap();
+            os.render(start.elapsed().as_millis() as u32).unwrap();
+        }
+
+        event_queue.dispatch_pending(&mut bg).unwrap();
+        //event_queue.blocking_dispatch(&mut bg)?;
         //event_queue.flush()?;
 
         //event_loop.dispatch(Duration::from_millis(100), &mut bg)?;
@@ -95,6 +101,8 @@ async fn main() -> Result<()> {
             println!("exiting example");
             break;
         }
+
+        thread::sleep(Duration::from_millis(10));
     }
 
     //for os in oses {

@@ -106,7 +106,7 @@ impl CompositorHandler for BackgroundLayer {
         };
         let mut os = os.lock().unwrap();
         os.frame_callback_received();
-        os.render(time).unwrap();
+        //os.render(time).unwrap();
         //self.render().unwrap();
     }
 }
@@ -124,7 +124,9 @@ impl LayerShellHandler for BackgroundLayer {
         let id = &layer.wl_surface().id();
         println!("{:?}", id);
         if let Some(os) = self.oses.get_mut().get(id) {
-            os.lock().unwrap().render(time).unwrap();
+            println!("initial frame_callback_received");
+            os.lock().unwrap().frame_callback_received();
+            //os.lock().unwrap().render(time).unwrap();
         }
 
         //layer.wl_surface().frame(qh, layer.wl_surface().clone());

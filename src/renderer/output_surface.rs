@@ -220,27 +220,41 @@ impl OutputSurface {
     }
 
     pub fn draw(&mut self) {
-        self.layer.wl_surface().damage_buffer(0, 0, self.width as i32, self.height as i32);
-        self.layer.wl_surface().frame(&self.qh, self.layer.wl_surface().clone());
+        self.layer
+            .wl_surface()
+            .damage_buffer(0, 0, self.width as i32, self.height as i32);
+        self.layer
+            .wl_surface()
+            .frame(&self.qh, self.layer.wl_surface().clone());
         self.layer.commit();
     }
 
     pub fn render(&mut self, time: u32) -> Result<()> {
+        if self.frame_callback_state != FrameCallbackState::Received {
+            return Ok(());
+        }
+
+        if time - self.last_render_time < 1000 / 3 {
+            return Ok(());
+        }
+
         match self.toy {
             Some(ref mut r) => {
-                self.layer.wl_surface().frame(&self.qh, self.layer.wl_surface().clone());
-                if time - self.last_render_time > 1000 / 3 {
-                    self.layer.wl_surface().damage_buffer(0, 0, self.width, self.height);
-                    self.last_render_time = time;
+                self.layer
+                    .wl_surface()
+                    .frame(&self.qh, self.layer.wl_surface().clone());
+                self.layer
+                    .wl_surface()
+                    .damage_buffer(0, 0, self.width, self.height);
+                self.last_render_time = time;
                 //let time = self.start_time.elapsed().as_secs_f32() / 100.0;
                 //r.set_time_elapsed(time);
-                    r.set_time_elapsed(time as f32 / 300000.);
-                    let frame = r.wgpu.surface.get_current_texture()?;
-                    if let Some(b) = r.render_to(frame) {
-                        println!("o");
-                        b.unmap();
-                    };
-                }
+                r.set_time_elapsed(time as f32 / 30000.);
+                let frame = r.wgpu.surface.get_current_texture()?;
+                if let Some(b) = r.render_to(frame) {
+                    println!("o");
+                    b.unmap();
+                };
                 self.layer.commit();
                 //block_on(r.render_async());
                 //r.frame_start(&mut self.surface)?;
@@ -249,6 +263,9 @@ impl OutputSurface {
             }
             None => println!("toy went away?"),
         }
+
+        self.frame_callback_reset();
+
         Ok(())
     }
 
@@ -273,7 +290,7 @@ impl OutputSurface {
         match self.frame_callback_state {
             FrameCallbackState::None | FrameCallbackState::Received => {
                 self.frame_callback_state = FrameCallbackState::Requested;
-                let cb = surface.frame(&self.qh, surface.clone());
+                surface.frame(&self.qh, surface.clone());
             }
             FrameCallbackState::Requested => (),
         }
