@@ -99,15 +99,6 @@ impl BackgroundLayer {
         os.request_frame_callback();
         //os.render(time);
     }
-
-    pub fn poll(&mut self) {
-        let os = match &self.os {
-            Some(os) => os,
-            None => return,
-        };
-        let mut os = os.lock().unwrap();
-        os.poll();
-    }
 }
 
 impl CompositorHandler for BackgroundLayer {
@@ -138,7 +129,15 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         time: u32,
     ) {
-        self.render();
+        if match &self.os {
+            Some(os) => match os.lock() {
+                Ok(os) => os.is(surface),
+                Err(_) => false,
+            },
+            None => false,
+        } {
+            self.render();
+        }
         //let os = match &self.os {
         //    Some(os) => os,
         //    None => return,
@@ -159,8 +158,15 @@ impl LayerShellHandler for BackgroundLayer {
         time: u32,
     ) {
         println!("configure");
-        self.want_frame();
-        self.render();
+        if match &self.os {
+            Some(os) => match os.lock() {
+                Ok(os) => os.is(layer.wl_surface()),
+                Err(_) => false,
+            },
+            None => false,
+        } {
+            self.render();
+        }
         //let id = &layer.wl_surface().id();
         //println!("{:?}", id);
         //if let Some(os) = &self.os {

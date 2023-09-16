@@ -49,7 +49,7 @@ async fn main() -> Result<()> {
 
     let pattern = std::env::args().nth(1).expect("no display given");
 
-    let os = match bg.output_state().outputs().find_map(|output| {
+    let mut os = match bg.output_state().outputs().find_map(|output| {
         let output_info = bg.output_state().info(&output).unwrap();
         if output_info.clone().name.unwrap() != pattern {
             None
@@ -65,6 +65,10 @@ async fn main() -> Result<()> {
         None => return Err(anyhow!("couldn't find display")),
     };
 
+    // immediately prep one frame
+    os.draw()?;
+    //os.request_frame_callback();
+
     bg.add_toy(Arc::new(Mutex::new(os)));
 
     let mut event_loop: EventLoop<BackgroundLayer> =
@@ -73,7 +77,7 @@ async fn main() -> Result<()> {
 
     let start = Instant::now();
     let mut last_frame = Instant::now();
-    const fps: f32 = 20.;
+    const fps: f32 = 10.;
     const mspf: f32 = 1000. / fps;
     let mspf_d = Duration::from_millis(mspf as u64);
 
@@ -83,7 +87,7 @@ async fn main() -> Result<()> {
         .insert_source(t, move |e, meta, bg| {
             //bg.render(start.elapsed().as_millis() as u32);
             bg.want_frame();
-            bg.request_callback();
+            //bg.request_callback();
             TimeoutAction::ToDuration(mspf_d)
         })
         .unwrap();

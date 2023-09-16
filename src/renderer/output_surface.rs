@@ -13,8 +13,10 @@ use sctk::{
         WaylandSurface,
     },
 };
-use wayland_client::{protocol::wl_output::WlOutput, Connection, Proxy, QueueHandle};
-use wgpu::Maintain;
+use wayland_client::{
+    protocol::wl_output::WlOutput, protocol::wl_surface, Connection, Proxy, QueueHandle,
+};
+use wgpu::{Maintain, SubmissionIndex, SurfaceTexture};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 use crate::handlers::background_layer::BackgroundLayer;
@@ -37,11 +39,12 @@ pub struct OutputSurface {
     qh: QueueHandle<BackgroundLayer>,
     frame_callback_state: FrameCallbackState,
 
-    toy: Option<WgpuToyRenderer>,
+    toy: WgpuToyRenderer,
     width: i32,
     height: i32,
     start_time: Instant,
     want: bool,
+    submitted_frame: Option<(SurfaceTexture, SubmissionIndex)>,
 }
 
 impl OutputSurface {
@@ -178,17 +181,7 @@ impl OutputSurface {
             "Exposure".to_string(),
         ];
         let values: Vec<f32> = vec![
-            0.551,
-            0.013,
-            0.5,
-            0.489,
-            0.018,
-            0.197,
-            0.621,
-            0.,
-            1.,
-            0.962,
-            0.224,
+            0.551, 0.053, 0.5, 0.489, 0.018, 0.197, 0.621, 0., 1., 0.962, 0.224,
         ];
 
         //let names = vec![
@@ -214,57 +207,53 @@ impl OutputSurface {
         Ok(Self {
             qh,
             layer: layer.into(),
-            toy: Some(toy),
+            toy,
             frame_callback_state: Default::default(),
             width,
             height,
             start_time: Instant::now(),
-            want: false,
+            want: true,
+            submitted_frame: None,
         })
     }
 
-    pub fn draw(&mut self) {
-        //self.layer
-        //    .wl_surface()
-        //    .damage_buffer(0, 0, self.width as i32, self.height as i32);
-        //self.layer
-        //    .wl_surface()
-        //    .frame(&self.qh, self.layer.wl_surface().clone());
-        //self.layer.commit();
+    pub fn is(&self, s: &wl_surface::WlSurface) -> bool {
+        s.id() == self.layer.wl_surface().id()
     }
 
-    pub fn poll(&mut self) {
-        match self.toy {
-            Some(ref mut r) => {
-                r.wgpu.device.poll(Maintain::Wait);
-            }
-            None => println!("toy went away?"),
-        }
+    pub fn draw(&mut self) -> Result<()> {
+        let time = self.start_time.elapsed().as_micros();
+        //r.set_time_elapsed(time);
+        self.toy.set_time_elapsed(time as f32 / 100.);
+        let frame = self.toy.wgpu.surface.get_current_texture()?;
+        let (_, submitted) = self.toy.render_to(frame);
+        self.submitted_frame = Some(submitted);
+
+        Ok(())
     }
 
     pub fn render(&mut self) -> Result<()> {
-        match self.toy {
-            Some(ref mut r) => {
-                //self.layer
-                //    .wl_surface()
-                //    .frame(&self.qh, self.layer.wl_surface().clone());
-                if self.want {
-                    self.want = false;
-                    let time = self.start_time.elapsed().as_micros();
-                    //r.set_time_elapsed(time);
-                    r.set_time_elapsed(time as f32 / 100.);
-                    let frame = r.wgpu.surface.get_current_texture()?;
-                    r.render_to(frame);
-                }
-                //self.layer.commit();
-                //block_on(r.render_async());
-                //r.frame_start(&mut self.surface)?;
-                //r.render(&mut self.device, &mut self.queue)?;
-                //r.frame_finish()
-            }
-            None => println!("toy went away?"),
+        if let Some((frame, i)) = self.submitted_frame.take() {
+            self.toy
+                .wgpu
+                .device
+                .poll(Maintain::WaitForSubmissionIndex(i));
+            frame.present();
         }
-
+        self.request_frame_callback();
+        //self.layer
+        //    .wl_surface()
+        //    .frame(&self.qh, self.layer.wl_surface().clone());
+        if self.want {
+            self.want = false;
+            self.draw()?;
+        }
+        //self.layer.commit();
+        //block_on(r.render_async());
+        //r.frame_start(&mut self.surface)?;
+        //r.render(&mut self.device, &mut self.queue)?;
+        //r.frame_finish()
+        //
 
         Ok(())
     }
