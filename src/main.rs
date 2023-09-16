@@ -1,4 +1,4 @@
-use std::{borrow::{Cow}, time::Instant};
+use std::{borrow::Cow, time::{Instant, Duration}};
 
 use anyhow::{anyhow, bail, Result};
 
@@ -19,9 +19,10 @@ use sctk::{
             LayerSurfaceConfigure,
         },
         WaylandSurface,
-    },
+    }, reexports::calloop::EventLoop,
 };
 use wayland_client::{
+    WaylandSource,
     globals::registry_queue_init,
     protocol::{wl_output, wl_seat, wl_surface},
     Connection, Proxy, QueueHandle,
@@ -147,9 +148,22 @@ fn main() -> Result<()> {
         output_surfaces,
     };
 
+    let mut event_loop: EventLoop<Wgpu> =
+        EventLoop::try_new().expect("Failed to initialize the event loop!");
+    let loop_handle = event_loop.handle();
+    WaylandSource::new(event_queue).unwrap().insert(loop_handle).unwrap();
+
     // We don't draw immediately, the configure will notify us when to first draw.
     loop {
-        event_queue.blocking_dispatch(&mut wgpu).unwrap();
+        event_loop.dispatch(Duration::from_millis(10), &mut wgpu).unwrap();
+        //event_queue.blocking_dispatch(&mut wgpu).unwrap();
+
+        for os in wgpu.output_surfaces.iter_mut() {
+            match os.render() {
+                Ok(_) => {},
+                Err(e) => {println!("{}", e)},
+            };
+        }
 
         if wgpu.exit {
             println!("exiting example");
@@ -279,6 +293,21 @@ struct OutputSurface {
     renderable: Option<Renderable>,
 }
 
+impl OutputSurface {
+    fn render(&mut self) -> Result<()> {
+        match self.renderable {
+            Some(ref mut r) => {
+                r.frame_start(&mut self.surface)?;
+                r.render(&mut self.device, &self.output_info, &mut self.queue)?;
+                r.frame_finish()?;
+            },
+            None => {},
+        };
+
+        Ok(())
+    }
+}
+
 struct Wgpu {
     registry_state: RegistryState,
     seat_state: SeatState,
@@ -323,21 +352,6 @@ impl CompositorHandler for Wgpu {
                 Err(e) => {println!("{}", e)},
             };
         }
-    }
-}
-
-impl OutputSurface {
-    fn render(&mut self) -> Result<()> {
-        match self.renderable {
-            Some(ref mut r) => {
-                r.frame_start(&mut self.surface)?;
-                r.render(&mut self.device, &self.output_info, &mut self.queue)?;
-                r.frame_finish()?;
-            },
-            None => {},
-        };
-
-        Ok(())
     }
 }
 
