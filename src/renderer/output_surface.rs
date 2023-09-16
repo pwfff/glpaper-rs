@@ -228,13 +228,13 @@ impl OutputSurface {
     pub fn render(&mut self, time: u32) -> Result<()> {
         match self.toy {
             Some(ref mut r) => {
-                self.layer.wl_surface().damage(0, 0, self.width, self.height);
                 self.layer.wl_surface().frame(&self.qh, self.layer.wl_surface().clone());
                 if time - self.last_render_time > 1000/15 {
+                    self.layer.wl_surface().damage(0, 0, self.width, self.height);
                     self.last_render_time = time;
                 //let time = self.start_time.elapsed().as_secs_f32() / 100.0;
                 //r.set_time_elapsed(time);
-                    r.set_time_elapsed(time as f32 / 10000.);
+                    r.set_time_elapsed(time as f32 / 5000.);
                     let frame = r.wgpu.surface.get_current_texture()?;
                     r.render_to(frame);
                 }
