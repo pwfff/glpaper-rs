@@ -123,10 +123,9 @@ impl LayerShellHandler for BackgroundLayer {
         println!("configured");
         let id = &layer.wl_surface().id();
         println!("{:?}", id);
-        let os = match self.oses.get_mut().get(id) {
-            Some(os) => os.lock().unwrap().render(time),
-            None => return,
-        };
+        if let Some(os) = self.oses.get_mut().get(id) {
+            os.lock().unwrap().render(time).unwrap();
+        }
 
         //layer.wl_surface().frame(qh, layer.wl_surface().clone());
         //for output_surface in self.output_surfaces.iter_mut() {
