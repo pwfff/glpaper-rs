@@ -1,17 +1,15 @@
-use anyhow::{anyhow, Result};
+use anyhow::{Result};
 use pollster::block_on;
 use sctk::{
     output::OutputInfo,
     shell::{wlr_layer::LayerSurface, WaylandSurface},
 };
 use wayland_client::Proxy;
-use wgpu::{ShaderModule, ShaderModuleDescriptor};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 pub struct OutputSurface {
-    output_info: OutputInfo,
     layer: LayerSurface,
-    renderable: Option<WgpuToyRenderer>,
+    pub toy: Option<WgpuToyRenderer>,
 }
 
 impl OutputSurface {
@@ -49,6 +47,7 @@ impl OutputSurface {
         };
         let mut toy = WgpuToyRenderer::new(ctx);
 
+        // TODO: big todo... get this stuff from the web?
         let names = vec![
             "Radius".to_string(),
             "TimeStep".to_string(),
@@ -80,15 +79,9 @@ impl OutputSurface {
         toy.compile(map);
 
         OutputSurface {
-            output_info,
             layer,
-            renderable: Some(toy),
+            toy: Some(toy),
         }
-    }
-
-    pub fn logical_size(&self) -> Result<(u32, u32)> {
-        let (width, height) = self.output_info.logical_size.ok_or(anyhow!("illogical"))?;
-        Ok((width.unsigned_abs(), height.unsigned_abs()))
     }
 
     pub fn layer_matches(&self, layer: &LayerSurface) -> bool {
@@ -96,7 +89,7 @@ impl OutputSurface {
     }
 
     pub fn render(&mut self) -> Result<()> {
-        match self.renderable {
+        match self.toy {
             Some(ref mut r) => {
                 block_on(r.render_async());
                 //r.frame_start(&mut self.surface)?;

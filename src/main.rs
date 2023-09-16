@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::Result;
 
@@ -6,7 +6,7 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
     WaylandDisplayHandle, WaylandWindowHandle,
 };
-use renderer::{output_surface::OutputSurface, renderable::RenderConfig};
+use renderer::output_surface::OutputSurface;
 use sctk::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
@@ -146,14 +146,20 @@ fn main() -> Result<()> {
         .insert(loop_handle)
         .unwrap();
 
-    // We don't draw immediately, the configure will notify us when to first draw.
+    let start_time = Instant::now();
     loop {
         event_loop
             .dispatch(Duration::from_millis(10), &mut background_layer)
             .unwrap();
         //event_queue.blocking_dispatch(&mut background_layer).unwrap();
 
+        let time = start_time.elapsed().as_micros() as f32 * 1e-6;
+
         for os in background_layer.output_surfaces.iter_mut() {
+            match os.toy.as_mut() {
+                Some(toy) => toy.set_time_elapsed(time),
+                None => {},
+            }
             match os.render() {
                 Ok(_) => {}
                 Err(e) => {
@@ -169,6 +175,7 @@ fn main() -> Result<()> {
     }
 
     for output_surface in background_layer.output_surfaces.into_iter() {
+        // TODO: do i still need this? am i dropping the right thing?
         drop(output_surface);
         //drop(output_surface.surface);
         //drop(output_surface.layer);
