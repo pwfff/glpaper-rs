@@ -65,7 +65,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         let layer =
             layer_shell.create_layer_surface(&qh, surface, Layer::Background, Some("glpaper-rs"), Some(&output));
         layer.set_size(123, 123);
-        layer.set_anchor(Anchor::BOTTOM);
+        layer.set_anchor(Anchor::TOP | Anchor::LEFT);
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
 
@@ -115,8 +115,11 @@ fn main() -> Result<(), Box<dyn Error>> {
         }))
         .expect("couldnt get the surface");
 
+        let output_info = list_outputs.output_state.info(&output).expect("output has no info");
+
         let (device, queue) = pollster::block_on(adapter.request_device(&Default::default(), None)).expect("couldnt get device");
         OutputSurface {
+            output_info,
             layer,
             device,
             surface,
@@ -131,8 +134,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         output_state: OutputState::new(&globals, &qh),
 
         exit: false,
-        width: 256,
-        height: 256,
         output_surfaces,
     };
 
@@ -256,6 +257,8 @@ impl ProvidesRegistryState for ListOutputs {
 }
 
 struct OutputSurface {
+    output_info: OutputInfo,
+
     layer: LayerSurface,
 
     adapter: wgpu::Adapter,
@@ -270,8 +273,6 @@ struct Wgpu {
     output_state: OutputState,
 
     exit: bool,
-    width: u32,
-    height: u32,
 
     output_surfaces: Vec<OutputSurface>,
 }
@@ -346,15 +347,8 @@ impl LayerShellHandler for Wgpu {
         configure: LayerSurfaceConfigure,
         serial: u32,
     ) {
-        let (new_width, new_height) = configure.new_size;
-        if new_width > 0 {
-            self.width = new_width;
-        }
-        if new_height > 0 {
-            self.height = new_height;
-        }
-
         for OutputSurface {
+            output_info,
             layer,
             adapter,
             surface,
@@ -366,14 +360,16 @@ impl LayerShellHandler for Wgpu {
                 continue;
             }
 
+            let (width, height) = output_info.logical_size.expect("illogical size?");
+
             let cap = surface.get_capabilities(&adapter);
             let surface_config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
                 format: cap.formats[0],
                 view_formats: vec![cap.formats[0]],
                 alpha_mode: wgpu::CompositeAlphaMode::Auto,
-                width: self.width,
-                height: self.height,
+                width: width.unsigned_abs(),
+                height: height.unsigned_abs(),
                 // Wayland is inherently a mailbox system.
                 present_mode: wgpu::PresentMode::Mailbox,
             };
