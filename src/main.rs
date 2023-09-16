@@ -43,33 +43,33 @@ async fn main() -> Result<()> {
     let mut bg = BackgroundLayer::new(&globals, &qh)?;
     println!("hui");
 
-    // dispatch once to get everything set up. probably unnecessary?
-    //event_queue.blocking_dispatch(&mut background_layer)?;
     event_queue.roundtrip(&mut bg).unwrap();
 
+    // dispatch once to get everything set up. probably unnecessary?
+    //event_queue.blocking_dispatch(&mut background_layer)?;
     let pattern = std::env::args().nth(1).expect("no display given");
 
-    let mut os = match bg.output_state().outputs().find_map(|output| {
+    match bg.output_state().outputs().find_map(|output| {
         let output_info = bg.output_state().info(&output).unwrap();
         if output_info.clone().name.unwrap() != pattern {
             None
         } else {
-            Some((output, output_info))
+            Some(output)
         }
     }) {
-        Some((output, output_info)) => {
-            OutputSurface::new(conn.clone(), qh.clone(), &bg, &output, &output_info)
-                .await
-                .unwrap()
+        Some(output) => {
+            bg.create_layer(&qh, output);
         }
         None => return Err(anyhow!("couldn't find display")),
     };
+
+    event_queue.roundtrip(&mut bg).unwrap();
 
     // immediately prep one frame
     //os.draw()?;
     //os.request_frame_callback();
 
-    bg.add_toy(Arc::new(Mutex::new(os)));
+    //bg.add_toy(Arc::new(Mutex::new(os)));
 
     let mut event_loop: EventLoop<BackgroundLayer> =
         EventLoop::try_new().expect("Failed to initialize the event loop!");

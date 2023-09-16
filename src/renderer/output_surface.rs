@@ -34,14 +34,12 @@ pub enum FrameCallbackState {
 }
 
 pub struct OutputSurface {
-    pub layer: Arc<LayerSurface>,
-
     qh: QueueHandle<BackgroundLayer>,
     frame_callback_state: FrameCallbackState,
 
     toy: WgpuToyRenderer,
-    width: i32,
-    height: i32,
+    width: u32,
+    height: u32,
     start_time: Instant,
     want: bool,
     submitted_frame: Option<(SurfaceTexture, SubmissionIndex)>,
@@ -59,25 +57,11 @@ impl OutputSurface {
     pub(crate) async fn new(
         conn: Connection,
         qh: QueueHandle<BackgroundLayer>,
-        state: &BackgroundLayer,
-        output: &WlOutput,
-        output_info: &OutputInfo,
+        layer: &LayerSurface,
+        width: u32,
+        height: u32,
     ) -> Result<Self> {
         println!("creating output surface");
-        let surface = state.compositor_state.create_surface(&qh);
-        let layer = state.layer_shell.create_layer_surface(
-            &qh,
-            surface,
-            Layer::Background,
-            Some(""),
-            Some(&output),
-        );
-        //layer.set_size(width.unsigned_abs(), height.unsigned_abs());
-        layer.set_anchor(Anchor::all());
-        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-        layer.commit();
-
-        let (width, height) = output_info.logical_size.unwrap();
 
         // Initialize wgpu
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -151,8 +135,8 @@ impl OutputSurface {
             view_formats: vec![],
             //view_formats: vec![cap.formats[0]],
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            width: width.unsigned_abs(),
-            height: height.unsigned_abs(),
+            width,
+            height,
             // Wayland is inherently a mailbox system.
             present_mode: wgpu::PresentMode::Mailbox,
         };
@@ -206,7 +190,6 @@ impl OutputSurface {
 
         Ok(Self {
             qh,
-            layer: layer.into(),
             toy,
             frame_callback_state: Default::default(),
             width,
@@ -217,9 +200,9 @@ impl OutputSurface {
         })
     }
 
-    pub fn is(&self, s: &wl_surface::WlSurface) -> bool {
-        s.id() == self.layer.wl_surface().id()
-    }
+    //pub fn is(&self, s: &wl_surface::WlSurface) -> bool {
+    //    s.id() == self.layer.wl_surface().id()
+    //}
 
     pub fn draw(&mut self) -> Result<()> {
         //println!("drawlin");
@@ -246,7 +229,7 @@ impl OutputSurface {
                 .poll(Maintain::WaitForSubmissionIndex(i));
             frame.present();
         }
-        self.request_frame_callback();
+        //self.request_frame_callback();
         //self.layer
         //    .wl_surface()
         //    .frame(&self.qh, self.layer.wl_surface().clone());
@@ -265,11 +248,11 @@ impl OutputSurface {
     }
 
     /// Request a frame callback if we don't have one for this window in flight.
-    pub fn request_frame_callback(&mut self) {
-        let surface = self.layer.wl_surface();
-        surface.frame(&self.qh, surface.clone());
-        surface.commit();
-    }
+    //pub fn request_frame_callback(&mut self) {
+    //    let surface = self.layer.wl_surface();
+    //    surface.frame(&self.qh, surface.clone());
+    //    surface.commit();
+    //}
 
     pub fn want_frame(&mut self) {
         self.want = true;

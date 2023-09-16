@@ -31,7 +31,10 @@ use sctk::{
 };
 use wayland_client::{
     globals::GlobalList,
-    protocol::{wl_output, wl_seat, wl_surface},
+    protocol::{
+        wl_output::{self, WlOutput},
+        wl_seat, wl_surface,
+    },
     Connection, Proxy, QueueHandle,
 };
 
@@ -41,9 +44,10 @@ pub struct BackgroundLayer {
     output_state: OutputState,
     pub compositor_state: Arc<CompositorState>,
     pub layer_shell: Arc<LayerShell>,
+    layer_surface: Option<LayerSurface>,
 
     start_time: Instant,
-    os: Option<Arc<Mutex<OutputSurface>>>,
+    os: Option<OutputSurface>,
 
     pub exit: bool,
 }
@@ -61,53 +65,64 @@ impl BackgroundLayer {
 
             start_time,
             os: None,
+            layer_surface: None,
 
             exit: false,
         })
     }
 
-    pub fn add_toy(&mut self, os: Arc<Mutex<OutputSurface>>) {
-        self.os = Some(os);
-    }
+    //pub fn add_toy(&mut self, layer: &LayerSurface, c: LayerSurfaceConfigure) {
+    //    self.os = Some(os);
+    //}
 
     pub fn draw(&mut self) {
-        let os = match &self.os {
-            Some(os) => os,
+        match &mut self.os {
+            Some(os) => os.draw().unwrap(),
             None => return,
         };
-        let mut os = os.lock().unwrap();
-        os.draw().unwrap();
         //os.render(time);
     }
 
     pub fn render(&mut self) {
-        let os = match &self.os {
-            Some(os) => os,
+        match &mut self.os {
+            Some(os) => os.render().unwrap(),
             None => return,
         };
-        let mut os = os.lock().unwrap();
-        os.render().unwrap();
         //os.render(time);
     }
 
     pub fn want_frame(&mut self) {
-        let os = match &self.os {
-            Some(os) => os,
+        match &mut self.os {
+            Some(os) => os.want_frame(),
             None => return,
         };
-        let mut os = os.lock().unwrap();
-        os.want_frame();
         //os.render(time);
     }
 
     pub fn request_callback(&mut self) {
-        let os = match &self.os {
-            Some(os) => os,
-            None => return,
-        };
-        let mut os = os.lock().unwrap();
-        os.request_frame_callback();
+        //let os = match &self.os {
+        //    Some(os) => os.request_frame_callback(),
+        //    None => return,
+        //};
         //os.render(time);
+    }
+
+    pub fn create_layer(&mut self, qh: &QueueHandle<Self>, output: WlOutput) {
+        println!("creating layer");
+        let surface = self.compositor_state.create_surface(&qh);
+        let layer = self.layer_shell.create_layer_surface(
+            &qh,
+            surface,
+            Layer::Background,
+            Some(""),
+            Some(&output),
+        );
+        //layer.set_size(width.unsigned_abs(), height.unsigned_abs());
+        layer.set_anchor(Anchor::all());
+        layer.set_keyboard_interactivity(KeyboardInteractivity::None);
+        layer.commit();
+        
+        self.layer_surface = Some(layer);
     }
 }
 
@@ -139,16 +154,10 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         time: u32,
     ) {
-        //println!("frame!!!!");
-        if match &self.os {
-            Some(os) => match os.lock() {
-                Ok(os) => os.is(surface),
-                Err(_) => false,
-            },
-            None => false,
-        } {
-            self.render();
-        }
+        self.render();
+        surface.frame(_qh, surface.clone());
+        surface.commit();
+
         //let os = match &self.os {
         //    Some(os) => os,
         //    None => return,
@@ -170,7 +179,9 @@ impl LayerShellHandler for BackgroundLayer {
     ) {
         println!("configure");
         match &self.os {
-            Some(os) => match os.lock() {
+            Some(os) => {}
+            /*
+             match os.lock() {
                 Ok(mut os) => {
                     if os.is(layer.wl_surface()) {
                         os.draw();
@@ -179,7 +190,22 @@ impl LayerShellHandler for BackgroundLayer {
                 }
                 Err(_) => {}
             },
-            None => {}
+                */
+            None => {
+                let mut os = block_on(OutputSurface::new(
+                    conn.clone(),
+                    qh.clone(),
+                    layer,
+                    c.new_size.0,
+                    c.new_size.1,
+                ))
+                .unwrap();
+                layer.wl_surface().frame(qh, layer.wl_surface().clone());
+                os.draw();
+                os.render();
+                println!("did first draw");
+                self.os = Some(os);
+            }
         }
         //let id = &layer.wl_surface().id();
         //println!("{:?}", id);
