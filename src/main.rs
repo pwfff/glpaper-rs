@@ -2,13 +2,17 @@ use std::{thread, time::Duration};
 
 use anyhow::{anyhow, Result};
 
+use cpal::traits::{DeviceTrait, HostTrait};
 use handlers::background_layer::BackgroundLayer;
 use sctk::{
     output::OutputHandler,
     reexports::calloop::{
         timer::{TimeoutAction, Timer},
-        EventLoop,
+        EventLoop, channel,
     },
+};
+use spectrum_analyzer::{
+    samples_fft_to_spectrum, scaling::divide_by_N_sqrt, windows::hann_window, FrequencyLimit,
 };
 use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 
@@ -71,9 +75,49 @@ async fn main() -> Result<()> {
     let ws = WaylandSource::new(event_queue).unwrap();
     ws.insert(loop_handle).unwrap();
 
+    let host = cpal::default_host();
+    let dev = host.default_output_device().unwrap();
+    let conf = dev.default_output_config().unwrap().config();
+    let (tx, rx) = channel::channel();
+    let stm = dev
+        .build_input_stream(
+            &conf,
+            move |d: &[f32], f| {
+                let hann_window = hann_window(&d[0..1024]);
+                // calc spectrum
+                let spectrum_hann_window = samples_fft_to_spectrum(
+                    // (windowed) samples
+                    &hann_window,
+                    // sampling rate
+                    44100,
+                    // optional frequency limit: e.g. only interested in frequencies 50 <= f <= 150?
+                    FrequencyLimit::All,
+                    // optional scale
+                    Some(&divide_by_N_sqrt),
+                )
+                .unwrap();
+
+                tx.send(spectrum_hann_window).unwrap();
+
+                //for (i, (f, fv)) in spectrum_hann_window.data().iter().enumerate() {
+                //    dbg!((f, fv));
+                //    if i > 5 {
+                //        break;
+                //    }
+                //}
+            },
+            |e| {},
+            None,
+        )
+        .unwrap();
+
     loop {
         // dispatch. 5000ms is random, does it matter?
-        event_loop.dispatch(Duration::from_millis(5000), &mut bg)?;
+        event_loop.run(Duration::from_millis(50), &mut bg, |bg| {
+            if let Ok(d) = rx.try_recv() {
+                println!("got the d");
+            }
+        })?;
 
         if bg.exit {
             println!("how tho");
