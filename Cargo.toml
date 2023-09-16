@@ -23,4 +23,5 @@ tokio = { version = "1.32.0", features = ["full"] }
 futures = "0.3.28"
 cpal = "0.15.2"
 spectrum-analyzer = "1.4.0"
+maplit = "1.0.2"
 

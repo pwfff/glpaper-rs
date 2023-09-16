@@ -87,6 +87,13 @@ impl BackgroundLayer {
 
         self.layer_surface = Some(layer);
     }
+
+    pub fn set_fft(&mut self, max_f: f32, max_fv: f32) {
+        match self.os {
+            Some(ref mut os) => os.set_fft(max_f, max_fv),
+            None => {}
+        }
+    }
 }
 
 impl CompositorHandler for BackgroundLayer {
@@ -135,16 +142,11 @@ impl LayerShellHandler for BackgroundLayer {
         println!("configure");
         let (width, height) = c.new_size;
         if self.os.is_none() {
-            let mut os = block_on(OutputSurface::new(
-                conn.clone(),
-                layer,
-                width,
-                height,
-            ))
-            .unwrap();
+            let mut os = block_on(OutputSurface::new(conn.clone(), layer, width, height)).unwrap();
             layer.wl_surface().frame(qh, layer.wl_surface().clone());
             os.draw().unwrap();
             os.render().unwrap();
+            os.draw().unwrap();
             println!("did first draw");
             self.os = Some(os);
         }

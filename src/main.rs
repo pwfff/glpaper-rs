@@ -12,14 +12,14 @@ use sctk::{
     },
 };
 use spectrum_analyzer::{
-    samples_fft_to_spectrum, scaling::divide_by_N_sqrt, windows::hann_window, FrequencyLimit,
+    samples_fft_to_spectrum, scaling::{divide_by_N_sqrt, self, SpectrumDataStats}, windows::hann_window, FrequencyLimit,
 };
 use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 
 mod handlers;
 mod renderer;
 
-const FPS: f32 = 10.;
+const FPS: f32 = 60.;
 const MSPF: f32 = 1000. / FPS;
 
 #[tokio::main]
@@ -114,8 +114,18 @@ async fn main() -> Result<()> {
     loop {
         // dispatch. 5000ms is random, does it matter?
         event_loop.run(Duration::from_millis(50), &mut bg, |bg| {
-            if let Ok(d) = rx.try_recv() {
-                println!("got the d");
+            if let Ok(mut d) = rx.try_recv() {
+                //let mut buf = vec![Default::default(); d.data().len() as usize];
+                //d.apply_scaling_fn(&scaling::scale_to_zero_to_one, &mut buf).unwrap();
+                //dbg!(d.range());
+                //if d.range() < 0.1.into() {
+                //    return
+                //}
+
+                let (max_f, max_fv) = d.max();
+                let hmm = max_f / d.max_fr();
+                let med_fv = d.median();
+                bg.set_fft(max_fv.val(), max_fv.val());
             }
         })?;
 
