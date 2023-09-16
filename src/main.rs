@@ -1,4 +1,4 @@
-use std::{time::Duration, io};
+use std::{io, time::Duration, sync::{Arc, Mutex}};
 
 use anyhow::{anyhow, Result};
 
@@ -13,6 +13,8 @@ use sctk::{
     },
 };
 use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
+
+use crate::renderer::output_surface::OutputSurface;
 
 mod handlers;
 mod renderer;
@@ -36,53 +38,42 @@ async fn main() -> Result<()> {
     let mut bg = BackgroundLayer::new(&globals, &qh)?;
     println!("hui");
 
-    let compositor_state = CompositorState::bind(&globals, &qh).or_else(|_| Err(anyhow!("uhh")))?;
-    let layer_shell = LayerShell::bind(&globals, &qh).or_else(|_| Err(anyhow!("uhh")))?;
-
-    let layers: Vec<LayerSurface> = bg
-        .output_state()
-        .outputs()
-        .map(|output| {
-            //let (width, height) = bg.output_state().info(&output).unwrap().logical_size.unwrap();
-
-            let surface = compositor_state.create_surface(&qh);
-            let layer = layer_shell.create_layer_surface(
-                &qh,
-                surface,
-                Layer::Background,
-                Some("glpaper-rs"),
-                Some(&output),
-            );
-            //layer.set_size(width.unsigned_abs(), height.unsigned_abs());
-            layer.set_anchor(Anchor::all());
-            layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-            layer.commit();
-
-            layer
-        })
-        .collect();
-
     // dispatch once to get everything set up. probably unnecessary?
     //event_queue.blocking_dispatch(&mut background_layer)?;
     event_queue.roundtrip(&mut bg).unwrap();
 
-    let mut event_loop: EventLoop<BackgroundLayer> =
-        EventLoop::try_new().expect("Failed to initialize the event loop!");
-    let loop_handle = event_loop.handle();
-    WaylandSource::new(event_queue)
-        .unwrap()
-        .insert(loop_handle)
-        .unwrap();
+    let mut oses = vec![];
+    for output in bg.output_state().outputs() {
+        let output_info = bg.output_state().info(&output).unwrap();
+        let os = OutputSurface::new(conn.clone(), qh.clone(), &bg, &output, &output_info).await?;
+        let arctex: Arc<Mutex<OutputSurface>> = Arc::new(os.into());
+        bg.add_toy(arctex.clone());
+        oses.push(arctex);
+    }
+
+    //let mut event_loop: EventLoop<BackgroundLayer> =
+    //    EventLoop::try_new().expect("Failed to initialize the event loop!");
+    //let loop_handle = event_loop.handle();
+    //WaylandSource::new(event_queue)
+    //    .unwrap()
+    //    .insert(loop_handle)
+    //    .unwrap();
 
     // TODO: this seems wrong...
-    let mut ugh = tokio::time::interval(Duration::from_millis(1000/10));
+    //let mut ugh = tokio::time::interval(Duration::from_millis(1000/10));
     loop {
         //event_queue.dispatch_pending(&mut bg).unwrap();
-        //event_queue.blocking_dispatch(&mut bg).unwrap();
+        event_queue.blocking_dispatch(&mut bg)?;
+        //event_queue.flush()?;
 
-        event_loop.dispatch(Duration::from_millis(1), &mut bg)?;
-        ugh.tick().await;
-        bg.render().await.unwrap();
+        //event_loop.dispatch(Duration::from_millis(100), &mut bg)?;
+
+        //for os in oses.iter_mut() {
+        //    let mut os = os.lock().unwrap();
+        //    os.render();
+        //    //os.request_frame_callback();
+        //    //os.render()?;
+        //}
         //    //bg.render();
         //    //let time = start_time.elapsed().as_secs_f32() / 100.0;
 
@@ -106,9 +97,9 @@ async fn main() -> Result<()> {
         }
     }
 
-    for layer in layers {
-        drop(layer)
-    }
+    //for os in oses {
+    //    drop(os.surface)
+    //}
 
     //for output_surface in output_surfaces.into_iter() {
     // TODO: do i still need this? am i dropping the right thing?

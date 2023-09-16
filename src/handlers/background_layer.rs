@@ -1,5 +1,11 @@
 use anyhow::Result;
-use std::{collections::HashMap, sync::Arc, time::Instant};
+use pollster::block_on;
+use std::{
+    cell::RefCell,
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 use wayland_backend::client::ObjectId;
 
 use crate::renderer::output_surface::OutputSurface;
@@ -29,31 +35,15 @@ use wayland_client::{
     Connection, Proxy, QueueHandle,
 };
 
-/// https://github.com/rust-windowing/raw-window-handle/issues/49
-#[derive(Copy, Clone)]
-struct YesRawWindowHandleImplementingHasRawWindowHandleIsUnsound(RawDisplayHandle, RawWindowHandle);
-
-unsafe impl HasRawDisplayHandle for YesRawWindowHandleImplementingHasRawWindowHandleIsUnsound {
-    fn raw_display_handle(&self) -> RawDisplayHandle {
-        self.0
-    }
-}
-
-unsafe impl HasRawWindowHandle for YesRawWindowHandleImplementingHasRawWindowHandleIsUnsound {
-    fn raw_window_handle(&self) -> RawWindowHandle {
-        self.1
-    }
-}
-
 pub struct BackgroundLayer {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
-    compositor_state: CompositorState,
-    layer_shell: LayerShell,
+    pub compositor_state: Arc<CompositorState>,
+    pub layer_shell: Arc<LayerShell>,
 
     start_time: Instant,
-    oses: HashMap<ObjectId, OutputSurface>,
+    oses: RefCell<HashMap<ObjectId, Arc<Mutex<OutputSurface>>>>,
 
     pub exit: bool,
 }
@@ -66,40 +56,19 @@ impl BackgroundLayer {
             registry_state: RegistryState::new(&globals),
             seat_state: SeatState::new(&globals, &qh),
             output_state: OutputState::new(&globals, &qh),
-            compositor_state: CompositorState::bind(&globals, &qh)?,
-            layer_shell: LayerShell::bind(&globals, &qh)?,
+            compositor_state: CompositorState::bind(&globals, &qh)?.into(),
+            layer_shell: LayerShell::bind(&globals, &qh)?.into(),
 
             start_time,
-            oses: HashMap::new(),
+            oses: Default::default(),
 
             exit: false,
         })
     }
 
-    pub async fn render(&mut self) -> Result<()> {
-        let time = self.start_time.elapsed().as_secs_f32() / 10.0;
-        let mut handles = vec![];
-        for os in self.oses.values_mut() {
-            match os.toy.as_mut() {
-                Some(toy) => {
-                    toy.set_time_elapsed(time);
-                    handles.push(toy.render_async());
-                    //match toy.wgpu.surface.get_current_texture() {
-                    //    Ok(f) => {
-                    //        let buf = toy.render_to(f);
-
-                    //        println!("ididit");
-                    //    }
-                    //    Err(e) => {
-                    //        println!("{:?}", e)
-                    //    }
-                    //};
-                }
-                None => {}
-            }
-        }
-        futures::future::join_all(handles).await;
-        Ok(())
+    pub fn add_toy(&mut self, os: Arc<Mutex<OutputSurface>>) {
+        let id = {os.lock().unwrap().layer.wl_surface().id().clone()};
+        self.oses.get_mut().insert(id, os.into());
     }
 }
 
@@ -128,10 +97,16 @@ impl CompositorHandler for BackgroundLayer {
         &mut self,
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
-        _surface: &wl_surface::WlSurface,
+        surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
-        println!("frame");
+        let os = match self.oses.get_mut().get(&surface.id()) {
+            Some(os) => os,
+            None => return,
+        };
+        let mut os = os.lock().unwrap();
+        os.frame_callback_received();
+        os.render().unwrap();
         //self.render().unwrap();
     }
 }
@@ -145,52 +120,13 @@ impl LayerShellHandler for BackgroundLayer {
         c: LayerSurfaceConfigure,
         _: u32,
     ) {
+        println!("configured");
         let id = &layer.wl_surface().id();
-
-        if self.oses.contains_key(id) {
-            return;
+        println!("{:?}", id);
+        let os = match self.oses.get_mut().get(id) {
+            Some(os) => os.lock().unwrap().render(),
+            None => return,
         };
-
-        println!("configuring");
-        let (width, height) = c.new_size;
-
-        println!("ughhghguhguhg");
-        // Initialize wgpu
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
-            backends: wgpu::Backends::all(),
-            ..Default::default()
-        });
-
-        // Create the raw window handle for the surface.
-        let handle = {
-            let mut handle = WaylandDisplayHandle::empty();
-            handle.display = conn.backend().display_ptr() as *mut _;
-            let display_handle = RawDisplayHandle::Wayland(handle);
-
-            let mut handle = WaylandWindowHandle::empty();
-            handle.surface = layer.wl_surface().id().as_ptr() as *mut _;
-            let window_handle = RawWindowHandle::Wayland(handle);
-
-            YesRawWindowHandleImplementingHasRawWindowHandleIsUnsound(display_handle, window_handle)
-        };
-
-        let surface = unsafe { instance.create_surface(&handle).unwrap() };
-
-        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
-            compatible_surface: Some(&surface),
-            ..Default::default()
-        }))
-        .expect("couldnt get the surface");
-
-        let (device, queue) = pollster::block_on(adapter.request_device(&Default::default(), None))
-            .expect("couldnt get device");
-
-        println!("got device and stuf..");
-
-        self.oses.insert(
-            id.clone(),
-            OutputSurface::new(width, height, device, surface, adapter, queue),
-        );
 
         //layer.wl_surface().frame(qh, layer.wl_surface().clone());
         //for output_surface in self.output_surfaces.iter_mut() {
