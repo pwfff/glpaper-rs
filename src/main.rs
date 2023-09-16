@@ -1,28 +1,22 @@
-use std::{
-    io,
-    sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
-};
+use std::{thread, time::Duration};
 
 use anyhow::{anyhow, Result};
 
 use handlers::background_layer::BackgroundLayer;
 use sctk::{
-    compositor::CompositorState,
     output::OutputHandler,
-    reexports::calloop::{EventLoop, timer::{TimeoutAction, Timer}},
-    shell::{
-        wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerSurface},
-        WaylandSurface,
+    reexports::calloop::{
+        timer::{TimeoutAction, Timer},
+        EventLoop,
     },
 };
 use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 
-use crate::renderer::output_surface::OutputSurface;
-
 mod handlers;
 mod renderer;
+
+const FPS: f32 = 10.;
+const MSPF: f32 = 1000. / FPS;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -34,24 +28,17 @@ async fn main() -> Result<()> {
     // now set up main handler
     let (globals, mut event_queue) = registry_queue_init(&conn).unwrap();
     let qh = event_queue.handle();
-    //let output_state = OutputState::new(&globals, &qh);
 
-    // construct background_layer, then event loop so we can trigger rendering over time without depending on
-    // messages coming in from wayland
-    // TODO: kick this stuff off in two separate threads(?) instead of depending on the dispatch
-    // timeout
+    // init state, do roundtrip to get display info
     let mut bg = BackgroundLayer::new(&globals, &qh)?;
-    println!("hui");
 
     event_queue.roundtrip(&mut bg).unwrap();
 
-    // dispatch once to get everything set up. probably unnecessary?
-    //event_queue.blocking_dispatch(&mut background_layer)?;
-    let pattern = std::env::args().nth(1).expect("no display given");
+    let requested_display = std::env::args().nth(1).expect("no display given");
 
     match bg.output_state().outputs().find_map(|output| {
         let output_info = bg.output_state().info(&output).unwrap();
-        if output_info.clone().name.unwrap() != pattern {
+        if output_info.clone().name.unwrap() != requested_display {
             None
         } else {
             Some(output)
@@ -63,68 +50,30 @@ async fn main() -> Result<()> {
         None => return Err(anyhow!("couldn't find display")),
     };
 
+    // round trip to get layer we just added configured, rendering will start
     event_queue.roundtrip(&mut bg).unwrap();
 
-    // immediately prep one frame
-    //os.draw()?;
-    //os.request_frame_callback();
-
-    //bg.add_toy(Arc::new(Mutex::new(os)));
-
+    // get a loop, add a timer source so we can draw at limited fps
     let mut event_loop: EventLoop<BackgroundLayer> =
         EventLoop::try_new().expect("Failed to initialize the event loop!");
     let loop_handle = event_loop.handle();
 
-    let start = Instant::now();
-    let mut last_frame = Instant::now();
-    const fps: f32 = 10.;
-    const mspf: f32 = 1000. / fps;
-    let mspf_d = Duration::from_millis(mspf as u64);
-
+    let mspf_d = Duration::from_millis(MSPF as u64);
     let t = Timer::from_duration(mspf_d);
-
     loop_handle
-        .insert_source(t, move |e, meta, bg| {
-            //bg.render(start.elapsed().as_millis() as u32);
+        .insert_source(t, move |_, _, bg| {
             bg.draw();
-            //bg.request_callback();
             TimeoutAction::ToDuration(mspf_d)
         })
         .unwrap();
 
+    // add wayland events into the loop
     let ws = WaylandSource::new(event_queue).unwrap();
     ws.insert(loop_handle).unwrap();
 
     loop {
-        //bg.render(start.elapsed().as_millis() as u32);
-
-        //event_queue.dispatch_pending(&mut bg).unwrap();
-        //event_queue.blocking_dispatch(&mut bg)?;
-        //event_queue.flush()?;
-
+        // dispatch. 5000ms is random, does it matter?
         event_loop.dispatch(Duration::from_millis(5000), &mut bg)?;
-
-        //for os in oses.iter_mut() {
-        //    let mut os = os.lock().unwrap();
-        //    os.render();
-        //    //os.request_frame_callback();
-        //    //os.render()?;
-        //}
-        //    //bg.render();
-        //    //let time = start_time.elapsed().as_secs_f32() / 100.0;
-
-        //    //for os in bg.output_surfaces.iter_mut() {
-        //    //    match os.toy.as_mut() {
-        //    //        Some(toy) => {
-        //    //            sender.send(toy);
-        //    //            //toy.set_time_elapsed(time);
-        //    //            //pollster::block_on(toy.render_async());
-        //    //        }
-        //    //        None => {}
-        //    //    }
-        //    //}
-        //})?;
-        //event_queue.blocking_dispatch(&mut background_layer).unwrap();
 
         if bg.exit {
             println!("how tho");
@@ -134,17 +83,6 @@ async fn main() -> Result<()> {
 
         thread::sleep(Duration::from_millis(10));
     }
-
-    //for os in oses {
-    //    drop(os.surface)
-    //}
-
-    //for output_surface in output_surfaces.into_iter() {
-    // TODO: do i still need this? am i dropping the right thing?
-    //drop(output_surface);
-    //drop(output_surface.surface);
-    //drop(output_surface.layer);
-    //}
 
     Ok(())
 }

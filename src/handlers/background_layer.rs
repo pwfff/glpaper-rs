@@ -1,23 +1,12 @@
 use anyhow::Result;
 use pollster::block_on;
-use std::{
-    cell::RefCell,
-    collections::HashMap,
-    sync::{Arc, Mutex},
-    time::Instant,
-};
-use wayland_backend::client::ObjectId;
+use std::sync::Arc;
 
 use crate::renderer::output_surface::OutputSurface;
-
-use raw_window_handle::{
-    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
-    WaylandDisplayHandle, WaylandWindowHandle,
-};
 use sctk::{
     compositor::{CompositorHandler, CompositorState},
     delegate_compositor, delegate_layer, delegate_output, delegate_registry, delegate_seat,
-    output::{OutputHandler, OutputInfo, OutputState},
+    output::{OutputHandler, OutputState},
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{Capability, SeatHandler, SeatState},
@@ -35,18 +24,17 @@ use wayland_client::{
         wl_output::{self, WlOutput},
         wl_seat, wl_surface,
     },
-    Connection, Proxy, QueueHandle,
+    Connection, QueueHandle,
 };
 
 pub struct BackgroundLayer {
     registry_state: RegistryState,
     seat_state: SeatState,
     output_state: OutputState,
-    pub compositor_state: Arc<CompositorState>,
-    pub layer_shell: Arc<LayerShell>,
+    compositor_state: Arc<CompositorState>,
+    layer_shell: Arc<LayerShell>,
     layer_surface: Option<LayerSurface>,
 
-    start_time: Instant,
     os: Option<OutputSurface>,
 
     pub exit: bool,
@@ -54,8 +42,6 @@ pub struct BackgroundLayer {
 
 impl BackgroundLayer {
     pub fn new(globals: &GlobalList, qh: &QueueHandle<Self>) -> Result<Self> {
-        let start_time = Instant::now();
-
         Ok(BackgroundLayer {
             registry_state: RegistryState::new(&globals),
             seat_state: SeatState::new(&globals, &qh),
@@ -63,7 +49,6 @@ impl BackgroundLayer {
             compositor_state: CompositorState::bind(&globals, &qh)?.into(),
             layer_shell: LayerShell::bind(&globals, &qh)?.into(),
 
-            start_time,
             os: None,
             layer_surface: None,
 
@@ -71,16 +56,11 @@ impl BackgroundLayer {
         })
     }
 
-    //pub fn add_toy(&mut self, layer: &LayerSurface, c: LayerSurfaceConfigure) {
-    //    self.os = Some(os);
-    //}
-
     pub fn draw(&mut self) {
         match &mut self.os {
             Some(os) => os.draw().unwrap(),
             None => return,
         };
-        //os.render(time);
     }
 
     pub fn render(&mut self) {
@@ -88,23 +68,6 @@ impl BackgroundLayer {
             Some(os) => os.render().unwrap(),
             None => return,
         };
-        //os.render(time);
-    }
-
-    pub fn want_frame(&mut self) {
-        match &mut self.os {
-            Some(os) => os.want_frame(),
-            None => return,
-        };
-        //os.render(time);
-    }
-
-    pub fn request_callback(&mut self) {
-        //let os = match &self.os {
-        //    Some(os) => os.request_frame_callback(),
-        //    None => return,
-        //};
-        //os.render(time);
     }
 
     pub fn create_layer(&mut self, qh: &QueueHandle<Self>, output: WlOutput) {
@@ -121,7 +84,7 @@ impl BackgroundLayer {
         layer.set_anchor(Anchor::all());
         layer.set_keyboard_interactivity(KeyboardInteractivity::None);
         layer.commit();
-        
+
         self.layer_surface = Some(layer);
     }
 }
@@ -152,19 +115,11 @@ impl CompositorHandler for BackgroundLayer {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
         surface: &wl_surface::WlSurface,
-        time: u32,
+        _: u32,
     ) {
         self.render();
         surface.frame(_qh, surface.clone());
         surface.commit();
-
-        //let os = match &self.os {
-        //    Some(os) => os,
-        //    None => return,
-        //};
-        //os.lock().unwrap().render(time);
-        //os.render(time).unwrap();
-        //self.render().unwrap();
     }
 }
 
@@ -175,68 +130,24 @@ impl LayerShellHandler for BackgroundLayer {
         qh: &QueueHandle<Self>,
         layer: &LayerSurface,
         c: LayerSurfaceConfigure,
-        time: u32,
+        _: u32,
     ) {
         println!("configure");
-        match &self.os {
-            Some(os) => {}
-            /*
-             match os.lock() {
-                Ok(mut os) => {
-                    if os.is(layer.wl_surface()) {
-                        os.draw();
-                        os.render();
-                    }
-                }
-                Err(_) => {}
-            },
-                */
-            None => {
-                let mut os = block_on(OutputSurface::new(
-                    conn.clone(),
-                    qh.clone(),
-                    layer,
-                    c.new_size.0,
-                    c.new_size.1,
-                ))
-                .unwrap();
-                layer.wl_surface().frame(qh, layer.wl_surface().clone());
-                os.draw();
-                os.render();
-                println!("did first draw");
-                self.os = Some(os);
-            }
+        let (width, height) = c.new_size;
+        if self.os.is_none() {
+            let mut os = block_on(OutputSurface::new(
+                conn.clone(),
+                layer,
+                width,
+                height,
+            ))
+            .unwrap();
+            layer.wl_surface().frame(qh, layer.wl_surface().clone());
+            os.draw().unwrap();
+            os.render().unwrap();
+            println!("did first draw");
+            self.os = Some(os);
         }
-        //let id = &layer.wl_surface().id();
-        //println!("{:?}", id);
-        //if let Some(os) = &self.os {
-        //    println!("initial frame_callback_received");
-        //    os.lock().unwrap().();
-        //    //os.lock().unwrap().render(time).unwrap();
-        //}
-
-        //layer.wl_surface().frame(qh, layer.wl_surface().clone());
-        //for output_surface in self.output_surfaces.iter_mut() {
-        //    if !output_surface.layer_matches(this_layer) {
-        //        continue;
-        //    }
-
-        //    // TODO: what was this for
-        //    //let cap = output_surface
-        //    //    .surface
-        //    //    .get_capabilities(&output_surface.adapter);
-
-        //    // TODO: pull this crap out? change it on the fly? how do we integrate real time audio
-        //    // into the uniforms?
-        //    //let config = RenderConfig::new(
-        //    //    output_surface,
-        //    //    include_str!("./renderer/assets/fragment.default.wgsl"),
-        //    //)
-        //    //.unwrap();
-
-        //    //output_surface.prep_render_pipeline(config).unwrap();
-        //    output_surface.render().unwrap();
-        //}
     }
 
     fn closed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &LayerSurface) {

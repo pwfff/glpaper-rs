@@ -1,4 +1,4 @@
-use std::{sync::Arc, time::Instant};
+use std::time::Instant;
 
 use anyhow::Result;
 use pollster::block_on;
@@ -6,57 +6,25 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
     WaylandDisplayHandle, WaylandWindowHandle,
 };
-use sctk::{
-    output::OutputInfo,
-    shell::{
-        wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerSurface, LayerSurfaceConfigure},
-        WaylandSurface,
-    },
+use sctk::shell::{
+    wlr_layer::LayerSurface,
+    WaylandSurface,
 };
 use wayland_client::{
-    protocol::wl_output::WlOutput, protocol::wl_surface, Connection, Proxy, QueueHandle,
+    Connection, Proxy,
 };
 use wgpu::{Maintain, SubmissionIndex, SurfaceTexture};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
-use crate::handlers::background_layer::BackgroundLayer;
-
-/// The state of the frame callback.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FrameCallbackState {
-    /// No frame callback was requsted.
-    #[default]
-    None,
-    /// The frame callback was requested, but not yet arrived, the redraw events are throttled.
-    Requested,
-    /// The callback was marked as done, and user could receive redraw requested
-    Received,
-}
-
 pub struct OutputSurface {
-    qh: QueueHandle<BackgroundLayer>,
-    frame_callback_state: FrameCallbackState,
-
     toy: WgpuToyRenderer,
-    width: u32,
-    height: u32,
     start_time: Instant,
-    want: bool,
     submitted_frame: Option<(SurfaceTexture, SubmissionIndex)>,
 }
 
 impl OutputSurface {
-    //pub fn new(
-    //    width: u32,
-    //    height: u32,
-    //    device: wgpu::Device,
-    //    surface: wgpu::Surface,
-    //    adapter: wgpu::Adapter,
-    //    queue: wgpu::Queue,
-    //) -> Self {
     pub(crate) async fn new(
         conn: Connection,
-        qh: QueueHandle<BackgroundLayer>,
         layer: &LayerSurface,
         width: u32,
         height: u32,
@@ -189,23 +157,15 @@ impl OutputSurface {
         println!("well it compiled?");
 
         Ok(Self {
-            qh,
             toy,
-            frame_callback_state: Default::default(),
-            width,
-            height,
             start_time: Instant::now(),
-            want: true,
             submitted_frame: None,
         })
     }
 
-    //pub fn is(&self, s: &wl_surface::WlSurface) -> bool {
-    //    s.id() == self.layer.wl_surface().id()
-    //}
-
     pub fn draw(&mut self) -> Result<()> {
-        //println!("drawlin");
+        self.toy.wgpu.device.poll(Maintain::Poll);
+
         if self.submitted_frame.is_some() {
             //println!("already got one hun");
             return Ok(());
@@ -229,32 +189,7 @@ impl OutputSurface {
                 .poll(Maintain::WaitForSubmissionIndex(i));
             frame.present();
         }
-        //self.request_frame_callback();
-        //self.layer
-        //    .wl_surface()
-        //    .frame(&self.qh, self.layer.wl_surface().clone());
-        //if self.want {
-        //    self.want = false;
-        //    self.draw()?;
-        //}
-        //self.layer.commit();
-        //block_on(r.render_async());
-        //r.frame_start(&mut self.surface)?;
-        //r.render(&mut self.device, &mut self.queue)?;
-        //r.frame_finish()
-        //
 
         Ok(())
-    }
-
-    /// Request a frame callback if we don't have one for this window in flight.
-    //pub fn request_frame_callback(&mut self) {
-    //    let surface = self.layer.wl_surface();
-    //    surface.frame(&self.qh, surface.clone());
-    //    surface.commit();
-    //}
-
-    pub fn want_frame(&mut self) {
-        self.want = true;
     }
 }
