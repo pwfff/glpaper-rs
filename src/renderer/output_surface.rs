@@ -223,11 +223,12 @@ impl OutputSurface {
         self.layer.commit();
     }
 
-    pub fn render(&mut self) -> Result<()> {
+    pub fn render(&mut self, time: u32) -> Result<()> {
         match self.toy {
             Some(ref mut r) => {
-                let time = self.start_time.elapsed().as_secs_f32() / 100.0;
-                r.set_time_elapsed(time);
+                //let time = self.start_time.elapsed().as_secs_f32() / 100.0;
+                //r.set_time_elapsed(time);
+                r.set_time_elapsed(time as f32 / 10000.);
                 self.layer.wl_surface().damage(0, 0, self.width, self.height);
                 self.layer.wl_surface().frame(&self.qh, self.layer.wl_surface().clone());
                 let frame = r.wgpu.surface.get_current_texture()?;

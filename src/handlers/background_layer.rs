@@ -98,7 +98,7 @@ impl CompositorHandler for BackgroundLayer {
         _conn: &Connection,
         _qh: &QueueHandle<Self>,
         surface: &wl_surface::WlSurface,
-        _time: u32,
+        time: u32,
     ) {
         let os = match self.oses.get_mut().get(&surface.id()) {
             Some(os) => os,
@@ -106,7 +106,7 @@ impl CompositorHandler for BackgroundLayer {
         };
         let mut os = os.lock().unwrap();
         os.frame_callback_received();
-        os.render().unwrap();
+        os.render(time).unwrap();
         //self.render().unwrap();
     }
 }
@@ -118,13 +118,13 @@ impl LayerShellHandler for BackgroundLayer {
         qh: &QueueHandle<Self>,
         layer: &LayerSurface,
         c: LayerSurfaceConfigure,
-        _: u32,
+        time: u32,
     ) {
         println!("configured");
         let id = &layer.wl_surface().id();
         println!("{:?}", id);
         let os = match self.oses.get_mut().get(id) {
-            Some(os) => os.lock().unwrap().render(),
+            Some(os) => os.lock().unwrap().render(time),
             None => return,
         };
 
