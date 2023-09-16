@@ -8,6 +8,7 @@ use raw_window_handle::{
     WaylandDisplayHandle, WaylandWindowHandle,
 };
 use sctk::shell::{wlr_layer::LayerSurface, WaylandSurface};
+use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Proxy};
 use wgpu::{Maintain, SubmissionIndex, SurfaceTexture};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
@@ -151,7 +152,7 @@ impl OutputSurface {
         vec![
             (format!("Radius"), 0.551),
             (format!("TimeStep"), 0.053),
-            (format!("Samples"), 0.2),
+            (format!("Samples"), 0.1),
             (format!("BlurRadius"), 0.489),
             (format!("VelocityDecay"), 0.018),
             (format!("Speed"), 0.197),
@@ -175,7 +176,7 @@ impl OutputSurface {
         let mut fs = Self::custom_floats_map();
         self.exp = med_fv.max(0.1).max(self.exp) * 0.9;
         for kv in fs.iter_mut() {
-            if kv.0 == "Exposure" {
+            if kv.0 == "BlurRadius" {
                 kv.1 = self.exp;
             }
         }
@@ -198,10 +199,23 @@ impl OutputSurface {
         let (_, submitted) = self.toy.render_to(frame);
         self.submitted_frame = Some(submitted);
 
+        self.toy.wgpu.device.poll(Maintain::Poll);
+
         Ok(())
     }
 
-    pub fn render(&mut self) -> Result<()> {
+    pub fn wait(&mut self) -> Result<()> {
+        if let Some((_, i)) = &self.submitted_frame {
+            self.toy
+                .wgpu
+                .device
+                .poll(Maintain::WaitForSubmissionIndex(i.clone()));
+        }
+
+        Ok(())
+    }
+
+    pub fn render(&mut self, layer: &WlSurface) -> Result<()> {
         if let Some((frame, i)) = self.submitted_frame.take() {
             self.toy
                 .wgpu
@@ -209,6 +223,7 @@ impl OutputSurface {
                 .poll(Maintain::WaitForSubmissionIndex(i));
             frame.present();
         }
+        layer.commit();
 
         Ok(())
     }

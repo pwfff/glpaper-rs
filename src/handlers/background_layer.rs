@@ -63,12 +63,12 @@ impl BackgroundLayer {
         };
     }
 
-    pub fn render(&mut self) {
-        match &mut self.os {
-            Some(os) => os.render().unwrap(),
-            None => return,
-        };
-    }
+    //pub fn render(&mut self) {
+    //    match &mut self.os {
+    //        Some(os) => os.render().unwrap(),
+    //        None => return,
+    //    };
+    //}
 
     pub fn create_layer(&mut self, qh: &QueueHandle<Self>, output: WlOutput) {
         println!("creating layer");
@@ -124,9 +124,10 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         _: u32,
     ) {
-        self.render();
         surface.frame(_qh, surface.clone());
-        surface.commit();
+        if let Some(ref mut os) = self.os {
+            os.render(surface).unwrap();
+        }
     }
 }
 
@@ -139,16 +140,20 @@ impl LayerShellHandler for BackgroundLayer {
         c: LayerSurfaceConfigure,
         _: u32,
     ) {
-        println!("configure");
         let (width, height) = c.new_size;
-        if self.os.is_none() {
-            let mut os = block_on(OutputSurface::new(conn.clone(), layer, width, height)).unwrap();
-            layer.wl_surface().frame(qh, layer.wl_surface().clone());
-            os.draw().unwrap();
-            os.render().unwrap();
-            os.draw().unwrap();
-            println!("did first draw");
-            self.os = Some(os);
+        let surface = layer.wl_surface();
+        match self.os {
+            None => {
+                let mut os =
+                    block_on(OutputSurface::new(conn.clone(), layer, width, height)).unwrap();
+                surface.frame(qh, surface.clone());
+                os.draw().unwrap();
+                os.render(surface).unwrap();
+                self.os = Some(os);
+            }
+            Some(ref mut os) => {
+                os.draw().unwrap();
+            }
         }
     }
 
