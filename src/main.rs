@@ -1,4 +1,4 @@
-use std::error::Error;
+use std::{borrow::Cow, error::Error, time::Instant};
 
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
@@ -24,6 +24,7 @@ use wayland_client::{
     protocol::{wl_output, wl_seat, wl_surface},
     Connection, Proxy, QueueHandle,
 };
+use wgpu::{util::DeviceExt, SurfaceConfiguration, SurfaceTexture, TextureView};
 
 fn main() -> Result<(), Box<dyn Error>> {
     env_logger::init();
@@ -62,6 +63,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let output_surfaces: Vec<OutputSurface> = list_outputs.output_state.outputs().map(|output| {
         let surface = compositor_state.create_surface(&qh);
+
         let layer =
             layer_shell.create_layer_surface(&qh, surface, Layer::Background, Some("glpaper-rs"), Some(&output));
         layer.set_size(123, 123);
@@ -125,6 +127,9 @@ fn main() -> Result<(), Box<dyn Error>> {
             surface,
             adapter,
             queue,
+            surface_configuration: None,
+            surface_texture: None,
+            texture_view: None,
         }
     }).collect();
 
@@ -265,6 +270,11 @@ struct OutputSurface {
     device: wgpu::Device,
     queue: wgpu::Queue,
     surface: wgpu::Surface,
+
+    // TODO: untangle the creation order here, this doesn't need to be an option?
+    surface_configuration: Option<SurfaceConfiguration>,
+    surface_texture: Option<SurfaceTexture>,
+    texture_view: Option<TextureView>,
 }
 
 struct Wgpu {
@@ -354,6 +364,9 @@ impl LayerShellHandler for Wgpu {
             surface,
             device,
             queue,
+            surface_configuration,
+            surface_texture,
+            texture_view,
         } in &self.output_surfaces
         {
             if layer.wl_surface().id() != this_layer.wl_surface().id() {
@@ -363,10 +376,144 @@ impl LayerShellHandler for Wgpu {
             let (width, height) = output_info.logical_size.expect("illogical size?");
 
             let cap = surface.get_capabilities(&adapter);
+
+            let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("fragment_shader"),
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(
+                    "struct Uniforms {
+    cursor: vec2<f32>,
+    mouse_down: u32,
+    mouse_press: vec2<f32>,
+    mouse_release: vec2<f32>,
+    resolution: vec2<f32>,
+    time: f32,
+};
+
+@group(0) @binding(0)
+var<uniform> u: Uniforms;
+
+fn image(t: texture_2d<f32>, spl: sampler, uv: vec2<f32>) -> vec4<f32> {
+    return textureSample(t, spl, vec2(uv.x, 1.0 - uv.y));
+}
+
+fn main_image(frag_color: vec4<f32>, frag_coord: vec2<f32>) -> vec4<f32> {
+    let uv = frag_coord / u.resolution;
+    let color = 0.5 + 0.5 * cos(u.time + uv.xyx + vec3(0.0, 2.0, 4.0));
+    return vec4(color, 1.0);
+}
+
+@fragment
+fn main(@builtin(position) frag_coord: vec4<f32>) -> @location(0) vec4<f32> {
+    let base_color = vec4(0.0, 0.0, 0.0, 1.0);
+    let color = main_image(base_color, ((frag_coord.xy - vec2(0.0, u.resolution.y)) * vec2(1.0, -1.0)));
+    return vec4(color.rgb, 1.0);
+}",
+                )),
+            });
+
+            let vert_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+                label: Some("vertex_shader"),
+                source: wgpu::ShaderSource::Wgsl(Cow::Borrowed(
+                    "@vertex
+fn main(@builtin(vertex_index) in_vertex_index: u32) -> @builtin(position) vec4<f32> {
+    let x = f32(i32((in_vertex_index << 1u) & 2u));
+    let y = f32(i32(in_vertex_index & 2u));
+    let out = 2.0 * vec2(x, y) - vec2(1.0);
+    return vec4(out, 0.0, 1.0);
+}",
+                )),
+            });
+
+            //let texture_bind_group_layout =
+            //    device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+            //        entries: &[
+            //            wgpu::BindGroupLayoutEntry {
+            //                binding: 0,
+            //                visibility: wgpu::ShaderStages::FRAGMENT,
+            //                ty: wgpu::BindingType::Texture {
+            //                    multisampled: false,
+            //                    view_dimension: wgpu::TextureViewDimension::D2,
+            //                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+            //                },
+            //                count: None,
+            //            },
+            //            //wgpu::BindGroupLayoutEntry {
+            //            //    binding: 1,
+            //            //    visibility: wgpu::ShaderStages::FRAGMENT,
+            //            //    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            //            //    count: None,
+            //            //},
+            //        ],
+            //        label: Some("Texture Bind Group Layout"),
+            //    });
+
+            let swapchain_capabilities = surface.get_capabilities(&adapter);
+            let swapchain_format = swapchain_capabilities.formats[0];
+
+            let mut uniform = Uniform::default();
+            uniform.time = Instant::now().elapsed().as_secs_f32();
+            uniform.resolution = [width as f32, height as f32];
+
+            let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Uniform Buffer"),
+                contents: uniform.as_bytes(),
+                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            });
+
+            let uniform_bind_group_layout =
+                device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                    label: Some("Uniform Bind Group Layout"),
+                    entries: &[wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: None,
+                        },
+                        count: None,
+                    }],
+                });
+
+            let uniform_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Uniform Bind Group"),
+                layout: &uniform_bind_group_layout,
+                entries: &[wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                }],
+            });
+
+            let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: None,
+                bind_group_layouts: &[&uniform_bind_group_layout],
+                push_constant_ranges: &[],
+            });
+
+            let render_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: None,
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &vert_shader,
+                    entry_point: "main",
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: "main",
+                    targets: &[Some(swapchain_format.into())],
+                }),
+                primitive: wgpu::PrimitiveState::default(),
+                depth_stencil: None,
+                multisample: wgpu::MultisampleState::default(),
+                multiview: None,
+            });
+
             let surface_config = wgpu::SurfaceConfiguration {
                 usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-                format: cap.formats[0],
-                view_formats: vec![cap.formats[0]],
+                format: swapchain_format,
+                view_formats: vec![],
+                //view_formats: vec![cap.formats[0]],
                 alpha_mode: wgpu::CompositeAlphaMode::Auto,
                 width: width.unsigned_abs(),
                 height: height.unsigned_abs(),
@@ -384,9 +531,24 @@ impl LayerShellHandler for Wgpu {
                 .texture
                 .create_view(&wgpu::TextureViewDescriptor::default());
 
+            //let texture_bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            //    layout: &texture_bind_group_layout,
+            //    entries: &[
+            //        wgpu::BindGroupEntry {
+            //            binding: 0,
+            //            resource: wgpu::BindingResource::TextureView(&texture_view),
+            //        },
+            //        //wgpu::BindGroupEntry {
+            //        //    binding: 1,
+            //        //    resource: wgpu::BindingResource::Sampler(&sampler),
+            //        //},
+            //    ],
+            //    label: Some("Bind Group"),
+            //});
+
             let mut encoder = device.create_command_encoder(&Default::default());
             {
-                let _renderpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                let mut renderpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                     label: None,
                     color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                         view: &texture_view,
@@ -398,6 +560,10 @@ impl LayerShellHandler for Wgpu {
                     })],
                     depth_stencil_attachment: None,
                 });
+                renderpass.set_pipeline(&render_pipeline);
+                // TODO: this was a constant UNIFORM_GROUP_ID
+                renderpass.set_bind_group(0, &uniform_bind_group, &[]);
+                renderpass.draw(0..3, 0..1)
             }
 
             // Submit the command in the queue to execute
@@ -408,6 +574,68 @@ impl LayerShellHandler for Wgpu {
 
     fn closed(&mut self, conn: &Connection, qh: &QueueHandle<Self>, layer: &LayerSurface) {
         todo!()
+    }
+}
+
+impl OutputSurface {
+    pub fn frame_finish(&mut self) {
+        if self.surface_texture.is_none() {
+            //bail!("No actived wgpu::SurfaceTexture found.")
+        }
+
+        if let Some(surface_texture) = self.surface_texture.take() {
+            surface_texture.present();
+        }
+    }
+
+    /// Starts a new frame.
+    ///
+    /// Needs to be called before [`Self::frame_finish`] and at the begining of each frame.
+    ///
+    /// # Errors
+    ///
+    /// - Will return an error if [`Self::frame_finish`] haven't been called at the end of the last frame.
+    pub fn frame_start(&mut self) {
+        if self.surface_texture.is_some() {
+            //bail!("Non-finished wgpu::SurfaceTexture found.")
+        }
+
+        let surface_texture = self
+            .surface
+            .get_current_texture()
+            .expect("couldnt get texture");
+
+        self.surface_texture = Some(surface_texture);
+
+        if let Some(surface_texture) = &self.surface_texture {
+            if let Some(config) = &self.surface_configuration {
+            self.texture_view = Some(surface_texture.texture.create_view(
+                &wgpu::TextureViewDescriptor {
+                    format: Some(config.format),
+                    ..wgpu::TextureViewDescriptor::default()
+                },
+            ));
+            }
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, bytemuck::Pod, bytemuck::Zeroable)]
+pub struct Uniform {
+    pub cursor: [f32; 2],
+    pub mouse_down: u32,
+    _padding0: u32,
+    pub mouse_press: [f32; 2],
+    pub mouse_release: [f32; 2],
+    pub resolution: [f32; 2],
+    pub time: f32,
+    _padding1: u32,
+}
+
+impl Uniform {
+    pub fn as_bytes(&self) -> &[u8] {
+        bytemuck::bytes_of(self)
     }
 }
 
