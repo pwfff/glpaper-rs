@@ -267,17 +267,15 @@ impl LayerShellHandler for BackgroundLayer {
             //    .surface
             //    .get_capabilities(&output_surface.adapter);
 
-            let config = RenderConfig::new(
-                output_surface,
-                "fn main_image(frag_color: vec4<f32>, frag_coord: vec2<f32>) -> vec4<f32> {
-    let uv = frag_coord / u.resolution;
-    let color = 0.5 + 0.5 * cos(u.time + uv.xyx + vec3(0.0, 2.0, 4.0));
-    return vec4(color, 1.0);
-}",
-            )
-            .unwrap();
+            // TODO: pull this crap out? change it on the fly? how do we integrate real time audio
+            // into the uniforms?
+            //let config = RenderConfig::new(
+            //    output_surface,
+            //    include_str!("./renderer/assets/fragment.default.wgsl"),
+            //)
+            //.unwrap();
 
-            output_surface.prep_render_pipeline(&config).unwrap();
+            //output_surface.prep_render_pipeline(config).unwrap();
             output_surface.render().unwrap();
         }
     }
