@@ -70,6 +70,16 @@ impl BackgroundLayer {
         self.os = Some(os);
     }
 
+    pub fn draw(&mut self) {
+        let os = match &self.os {
+            Some(os) => os,
+            None => return,
+        };
+        let mut os = os.lock().unwrap();
+        os.draw().unwrap();
+        //os.render(time);
+    }
+
     pub fn render(&mut self) {
         let os = match &self.os {
             Some(os) => os,

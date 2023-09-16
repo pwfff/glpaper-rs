@@ -86,7 +86,7 @@ async fn main() -> Result<()> {
     loop_handle
         .insert_source(t, move |e, meta, bg| {
             //bg.render(start.elapsed().as_millis() as u32);
-            bg.want_frame();
+            bg.draw();
             //bg.request_callback();
             TimeoutAction::ToDuration(mspf_d)
         })

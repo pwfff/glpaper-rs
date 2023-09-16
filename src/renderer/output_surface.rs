@@ -222,6 +222,10 @@ impl OutputSurface {
     }
 
     pub fn draw(&mut self) -> Result<()> {
+        if self.submitted_frame.is_some() {
+            return Ok(());
+        }
+
         let time = self.start_time.elapsed().as_micros();
         //r.set_time_elapsed(time);
         self.toy.set_time_elapsed(time as f32 / 100.);
@@ -244,10 +248,10 @@ impl OutputSurface {
         //self.layer
         //    .wl_surface()
         //    .frame(&self.qh, self.layer.wl_surface().clone());
-        if self.want {
-            self.want = false;
-            self.draw()?;
-        }
+        //if self.want {
+        //    self.want = false;
+        //    self.draw()?;
+        //}
         //self.layer.commit();
         //block_on(r.render_async());
         //r.frame_start(&mut self.surface)?;
