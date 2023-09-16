@@ -60,7 +60,7 @@ impl OutputSurface {
                 r.frame_start(&mut self.surface)?;
                 r.render(&mut self.device, &mut self.queue)?;
                 r.frame_finish()
-            },
+            }
             None => Ok(()),
         }
     }

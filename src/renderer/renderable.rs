@@ -70,13 +70,6 @@ impl Renderable {
         })
     }
 
-    /// Starts a new frame.
-    ///
-    /// Needs to be called before [`Self::frame_finish`] and at the begining of each frame.
-    ///
-    /// # Errors
-    ///
-    /// - Will return an error if [`Self::frame_finish`] haven't been called at the end of the last frame.
     pub fn frame_start(&mut self, surface: &mut Surface) -> Result<()> {
         if self.surface_texture.is_some() {
             bail!("Non-finished wgpu::SurfaceTexture found.")
@@ -181,6 +174,7 @@ pub struct RenderState {
     time_instant: Instant,
 
     uniform_bind_group: BindGroup,
+    // TODO: does this need to be public...?
     pub uniform_bind_group_layout: BindGroupLayout,
 
     uniform: Uniform,
