@@ -11,7 +11,7 @@ use handlers::background_layer::BackgroundLayer;
 use sctk::{
     compositor::CompositorState,
     output::OutputHandler,
-    reexports::calloop::EventLoop,
+    reexports::calloop::{EventLoop, timer::{TimeoutAction, Timer}},
     shell::{
         wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerSurface},
         WaylandSurface,
@@ -67,25 +67,39 @@ async fn main() -> Result<()> {
 
     bg.add_toy(Arc::new(Mutex::new(os)));
 
-    //let mut event_loop: EventLoop<BackgroundLayer> =
-    //    EventLoop::try_new().expect("Failed to initialize the event loop!");
-    //let loop_handle = event_loop.handle();
-    //WaylandSource::new(event_queue)
-    //    .unwrap()
-    //    .insert(loop_handle)
-    //    .unwrap();
+    let mut event_loop: EventLoop<BackgroundLayer> =
+        EventLoop::try_new().expect("Failed to initialize the event loop!");
+    let loop_handle = event_loop.handle();
 
-    // TODO: this seems wrong...
-    //let mut ugh = tokio::time::interval(Duration::from_millis(1000/10));
     let start = Instant::now();
-    loop {
-        bg.render(start.elapsed().as_millis() as u32);
+    let mut last_frame = Instant::now();
+    const fps: f32 = 5.;
+    const mspf: f32 = 1000. / fps;
+    let mspf_d = Duration::from_millis(mspf as u64);
 
-        event_queue.dispatch_pending(&mut bg).unwrap();
+    let t = Timer::from_duration(mspf_d);
+
+    loop_handle
+        .insert_source(t, move |e, meta, bg| {
+            //bg.render(start.elapsed().as_millis() as u32);
+            bg.want_frame();
+            bg.request_callback();
+            TimeoutAction::ToDuration(mspf_d)
+        })
+        .unwrap();
+
+    let ws = WaylandSource::new(event_queue).unwrap();
+    ws.insert(loop_handle).unwrap();
+
+    loop {
+        //bg.render(start.elapsed().as_millis() as u32);
+
+        //event_queue.dispatch_pending(&mut bg).unwrap();
         //event_queue.blocking_dispatch(&mut bg)?;
         //event_queue.flush()?;
 
-        //event_loop.dispatch(Duration::from_millis(100), &mut bg)?;
+        event_loop.dispatch(Duration::from_millis(1), &mut bg)?;
+        bg.poll();
 
         //for os in oses.iter_mut() {
         //    let mut os = os.lock().unwrap();

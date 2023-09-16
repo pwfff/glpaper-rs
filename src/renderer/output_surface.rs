@@ -14,6 +14,7 @@ use sctk::{
     },
 };
 use wayland_client::{protocol::wl_output::WlOutput, Connection, Proxy, QueueHandle};
+use wgpu::Maintain;
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 use crate::handlers::background_layer::BackgroundLayer;
@@ -40,7 +41,7 @@ pub struct OutputSurface {
     width: i32,
     height: i32,
     start_time: Instant,
-    last_render_time: u32,
+    want: bool,
 }
 
 impl OutputSurface {
@@ -215,47 +216,45 @@ impl OutputSurface {
             width,
             height,
             start_time: Instant::now(),
-            last_render_time: 0,
+            want: false,
         })
     }
 
     pub fn draw(&mut self) {
-        self.layer
-            .wl_surface()
-            .damage_buffer(0, 0, self.width as i32, self.height as i32);
-        self.layer
-            .wl_surface()
-            .frame(&self.qh, self.layer.wl_surface().clone());
-        self.layer.commit();
+        //self.layer
+        //    .wl_surface()
+        //    .damage_buffer(0, 0, self.width as i32, self.height as i32);
+        //self.layer
+        //    .wl_surface()
+        //    .frame(&self.qh, self.layer.wl_surface().clone());
+        //self.layer.commit();
     }
 
-    pub fn render(&mut self, time: u32) -> Result<()> {
-        if self.frame_callback_state != FrameCallbackState::Received {
-            return Ok(());
-        }
-
-        if time - self.last_render_time < 1000 / 10 {
-            return Ok(());
-        }
-
+    pub fn poll(&mut self) {
         match self.toy {
             Some(ref mut r) => {
-                self.layer
-                    .wl_surface()
-                    .frame(&self.qh, self.layer.wl_surface().clone());
-                self.layer
-                    .wl_surface()
-                    .damage_buffer(0, 0, self.width, self.height);
-                self.last_render_time = time;
-                //let time = self.start_time.elapsed().as_secs_f32() / 100.0;
-                //r.set_time_elapsed(time);
-                r.set_time_elapsed(time as f32 / 30000.);
-                let frame = r.wgpu.surface.get_current_texture()?;
-                if let Some(b) = r.render_to(frame) {
-                    println!("o");
-                    b.unmap();
-                };
-                self.layer.commit();
+                r.wgpu.device.poll(Maintain::Wait);
+            }
+            None => println!("toy went away?"),
+        }
+    }
+
+    pub fn render(&mut self) -> Result<()> {
+        println!("renderin");
+        match self.toy {
+            Some(ref mut r) => {
+                //self.layer
+                //    .wl_surface()
+                //    .frame(&self.qh, self.layer.wl_surface().clone());
+                if self.want {
+                    self.want = false;
+                    let time = self.start_time.elapsed().as_millis();
+                    //r.set_time_elapsed(time);
+                    r.set_time_elapsed(time as f32 / 50000.);
+                    let frame = r.wgpu.surface.get_current_texture()?;
+                    r.render_to(frame);
+                }
+                //self.layer.commit();
                 //block_on(r.render_async());
                 //r.frame_start(&mut self.surface)?;
                 //r.render(&mut self.device, &mut self.queue)?;
@@ -264,35 +263,19 @@ impl OutputSurface {
             None => println!("toy went away?"),
         }
 
-        self.frame_callback_reset();
 
         Ok(())
-    }
-
-    /// Get the current state of the frame callback.
-    pub fn frame_callback_state(&self) -> FrameCallbackState {
-        self.frame_callback_state
-    }
-
-    /// The frame callback was received, but not yet sent to the user.
-    pub fn frame_callback_received(&mut self) {
-        self.frame_callback_state = FrameCallbackState::Received;
-    }
-
-    /// Reset the frame callbacks state.
-    pub fn frame_callback_reset(&mut self) {
-        self.frame_callback_state = FrameCallbackState::None;
     }
 
     /// Request a frame callback if we don't have one for this window in flight.
     pub fn request_frame_callback(&mut self) {
         let surface = self.layer.wl_surface();
-        match self.frame_callback_state {
-            FrameCallbackState::None | FrameCallbackState::Received => {
-                self.frame_callback_state = FrameCallbackState::Requested;
-                surface.frame(&self.qh, surface.clone());
-            }
-            FrameCallbackState::Requested => (),
-        }
+        surface.frame(&self.qh, surface.clone());
+        surface.commit();
+    }
+
+    pub fn want_frame(&mut self) {
+        println!("want frame");
+        self.want = true;
     }
 }

@@ -70,13 +70,43 @@ impl BackgroundLayer {
         self.os = Some(os);
     }
 
-    pub fn render(&mut self, time: u32) {
+    pub fn render(&mut self) {
         let os = match &self.os {
             Some(os) => os,
             None => return,
         };
         let mut os = os.lock().unwrap();
-        os.render(time);
+        os.render().unwrap();
+        //os.render(time);
+    }
+
+    pub fn want_frame(&mut self) {
+        let os = match &self.os {
+            Some(os) => os,
+            None => return,
+        };
+        let mut os = os.lock().unwrap();
+        os.want_frame();
+        //os.render(time);
+    }
+
+    pub fn request_callback(&mut self) {
+        let os = match &self.os {
+            Some(os) => os,
+            None => return,
+        };
+        let mut os = os.lock().unwrap();
+        os.request_frame_callback();
+        //os.render(time);
+    }
+
+    pub fn poll(&mut self) {
+        let os = match &self.os {
+            Some(os) => os,
+            None => return,
+        };
+        let mut os = os.lock().unwrap();
+        os.poll();
     }
 }
 
@@ -108,11 +138,13 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         time: u32,
     ) {
-        let os = match &self.os {
-            Some(os) => os,
-            None => return,
-        };
-        os.lock().unwrap().frame_callback_received();
+        println!("in frame callback");
+        self.render();
+        //let os = match &self.os {
+        //    Some(os) => os,
+        //    None => return,
+        //};
+        //os.lock().unwrap().render(time);
         //os.render(time).unwrap();
         //self.render().unwrap();
     }
@@ -127,14 +159,16 @@ impl LayerShellHandler for BackgroundLayer {
         c: LayerSurfaceConfigure,
         time: u32,
     ) {
-        println!("configured");
-        let id = &layer.wl_surface().id();
-        println!("{:?}", id);
-        if let Some(os) = &self.os {
-            println!("initial frame_callback_received");
-            os.lock().unwrap().frame_callback_received();
-            //os.lock().unwrap().render(time).unwrap();
-        }
+        println!("configure");
+        self.want_frame();
+        self.render();
+        //let id = &layer.wl_surface().id();
+        //println!("{:?}", id);
+        //if let Some(os) = &self.os {
+        //    println!("initial frame_callback_received");
+        //    os.lock().unwrap().();
+        //    //os.lock().unwrap().render(time).unwrap();
+        //}
 
         //layer.wl_surface().frame(qh, layer.wl_surface().clone());
         //for output_surface in self.output_surfaces.iter_mut() {
