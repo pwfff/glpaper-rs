@@ -138,7 +138,6 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         time: u32,
     ) {
-        println!("in frame callback");
         self.render();
         //let os = match &self.os {
         //    Some(os) => os,

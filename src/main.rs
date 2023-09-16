@@ -73,7 +73,7 @@ async fn main() -> Result<()> {
 
     let start = Instant::now();
     let mut last_frame = Instant::now();
-    const fps: f32 = 5.;
+    const fps: f32 = 20.;
     const mspf: f32 = 1000. / fps;
     let mspf_d = Duration::from_millis(mspf as u64);
 
@@ -99,7 +99,6 @@ async fn main() -> Result<()> {
         //event_queue.flush()?;
 
         event_loop.dispatch(Duration::from_millis(1), &mut bg)?;
-        bg.poll();
 
         //for os in oses.iter_mut() {
         //    let mut os = os.lock().unwrap();

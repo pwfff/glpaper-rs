@@ -168,36 +168,39 @@ impl OutputSurface {
             "Radius".to_string(),
             "TimeStep".to_string(),
             "Samples".to_string(),
+            "BlurRadius".to_string(),
+            "VelocityDecay".to_string(),
+            "Speed".to_string(),
+            "BlurExponent1".to_string(),
+            "BlurExponent2".to_string(),
             "AnimatedNoise".to_string(),
             "Accumulation".to_string(),
             "Exposure".to_string(),
-            "BlurExponent1".to_string(),
-            "BlurRadius".to_string(),
-            "BlurExponent2".to_string(),
-            "KerrA".to_string(),
-            "KerrQ".to_string(),
-            "InitSpeed".to_string(),
-            "InitThick".to_string(),
-            "Steps".to_string(),
-            "FocalPlane".to_string(),
-            "MotionBlur".to_string(),
-            "Gamma".to_string(),
         ];
         let values: Vec<f32> = vec![
-            1.0, 0.072, 0.218, 0.0, 1.0, 0.369, 0.393, 0.743, 0.81, 0.876, 0.0, 0.719, 0.22, 0.387,
-            0.53, 0.0, 0.827,
+            0.551,
+            0.013,
+            0.5,
+            0.489,
+            0.018,
+            0.197,
+            0.621,
+            0.,
+            1.,
+            0.962,
+            0.224,
         ];
 
-        let names = vec![
-            "A".to_string(),
-            "B".to_string(),
-            "C".to_string(),
-            "DOF_Amount".to_string(),
-            "DOF_Focal_Dist".to_string(),
-            "Paused".to_string(),
-            "D".to_string(),
-        ];
-        let values: Vec<f32> = vec![0.059, 0.019, 0.08, 0.882, 0.503, 0.454, 0.127];
+        //let names = vec![
+        //    "A".to_string(),
+        //    "B".to_string(),
+        //    "C".to_string(),
+        //    "DOF_Amount".to_string(),
+        //    "DOF_Focal_Dist".to_string(),
+        //    "Paused".to_string(),
+        //    "D".to_string(),
+        //];
+        //let values: Vec<f32> = vec![0.059, 0.019, 0.08, 0.882, 0.503, 0.454, 0.127];
 
         toy.set_custom_floats(names, values);
 
@@ -240,7 +243,6 @@ impl OutputSurface {
     }
 
     pub fn render(&mut self) -> Result<()> {
-        println!("renderin");
         match self.toy {
             Some(ref mut r) => {
                 //self.layer
@@ -248,9 +250,9 @@ impl OutputSurface {
                 //    .frame(&self.qh, self.layer.wl_surface().clone());
                 if self.want {
                     self.want = false;
-                    let time = self.start_time.elapsed().as_millis();
+                    let time = self.start_time.elapsed().as_micros();
                     //r.set_time_elapsed(time);
-                    r.set_time_elapsed(time as f32 / 50000.);
+                    r.set_time_elapsed(time as f32 / 100.);
                     let frame = r.wgpu.surface.get_current_texture()?;
                     r.render_to(frame);
                 }
@@ -275,7 +277,6 @@ impl OutputSurface {
     }
 
     pub fn want_frame(&mut self) {
-        println!("want frame");
         self.want = true;
     }
 }

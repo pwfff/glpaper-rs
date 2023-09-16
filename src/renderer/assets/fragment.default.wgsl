@@ -1,185 +1,272 @@
-// Very simple algorithm. Explained great here - https://www.youtube.com/watch?v=kbKtFN71Lfs&ab_channel=Numberphile
-// You can basically do whatever transformations you want, which makes it really fun.
-// The shader is projecting points, then splatting them on the screen.
-// Great demo which uses this effect - https://www.youtube.com/watch?v=xLN3mTRlugs&ab_channel=AssemblyTV
+#storage atomic_storage array<atomic<i32>>
 
-alias iv4 = vec4<i32>;alias iv3 = vec3<i32>;alias iv2 = vec2<i32>;alias uv4 = vec4<u32>;alias uv3 = vec3<u32>;alias uv2 = vec2<u32>;alias v4 = vec4<f32>;alias v3 = vec3<f32>;alias v2 = vec2<f32>;alias m2 = mat2x2<f32>;alias m3 = mat3x3<f32>;alias m4 = mat4x4<f32>;
-#define global var<private>
-var<workgroup> texCoords: array<array<float2, 16>, 16>;
-#define Frame time.frame
-#define T (time.elapsed*float(custom.Paused > 0.5) + 5.) 
-#define Tb (time.elapsed) 
-#define pi acos(-1.)
-#define tau (acos(-1.)*2.)
-global R: v2;
-global U: v2;
-global seed: uint;
-global muv: v2;
-fn rot(a: float)-> m2{ return m2(cos(a), -sin(a),sin(a), cos(a));}
-fn rotX(a: float) -> m3{
-    let r = rot(a); return m3(1.,0.,0.,0.,r[0][0],r[0][1],0.,r[1][0],r[1][1]);
-}
-fn rotY(a: float) -> m3{
-    let r = rot(a); return m3(r[0][0],0.,r[0][1],0.,1.,0.,r[1][0],0.,r[1][1]);
-}
-fn rotZ(a: float) -> m3{
-    let r = rot(a); return m3(r[0][0],r[0][1],0.,r[1][0],r[1][1],0.,0.,0.,1.);
-}
-fn hash_u(_a: uint) -> uint{
-    var a: uint = _a;
-    a = a ^ (a >> 16u);
-    a *= 0x7feb352du;
-    a ^= a >> 15u;
-    a *= 0x846ca68bu;
-    a ^= a >> 16u;
-    return a;
-}
-fn hash_f() -> float{ var s = hash_u(seed); seed = s;return ( float( s ) / float( 0xffffffffu ) ); }
-fn hash_v2() -> v2{ return v2(hash_f(), hash_f()); }
-fn hash_v3() -> v3{ return v3(hash_f(), hash_f(), hash_f()); }
-fn hash_v4() -> v4{ return v4(hash_f(), hash_f(), hash_f(), hash_f()); }
+const MaxSamples = 256.0;
+const FOV = 0.8;
+const PI = 3.14159265;
+const TWO_PI = 6.28318530718;
+//sqrt of particle count
+const PARTICLE_COUNT = 600;
 
-fn sample_disk() -> v2{
-    let r = hash_v2();
-    return v2(sin(r.x*tau),cos(r.x*tau))*sqrt(r.y);
+const DEPTH_MIN = 0.2;
+const DEPTH_MAX = 5.0;
+const DEPTH_BITS = 16u;
+
+struct Camera
+{
+  pos: float3,
+  cam: float3x3,
+  fov: float,
+  size: float2
 }
 
-
-#define COL_CNT 4
-global kCols: array<v3, COL_CNT> = array<v3, COL_CNT>( 
-     vec3(1.0,1.0,1.0), vec3(0.8,0.4,0.7),
-     vec3(1.5,1.5,1.5), vec3(1.5,1.5,1.5)
-);
-
-fn mix_cols(_idx: float)->v3{
-    let idx = _idx%1.;
-    var cols_idx = int(idx*float(COL_CNT));
-    var fract_idx = fract(idx*float(COL_CNT));
-    fract_idx = smoothstep(0.,1.,fract_idx);
-    //return oklab_mix( kCols[cols_idx], kCols[(cols_idx + 1)%COL_CNT], fract_idx );
-    return mix( kCols[cols_idx], kCols[(cols_idx + 1)%COL_CNT], fract_idx );
+struct Particle
+{
+    position: float4,
+    velocity: float4,
 }
 
+var<private> camera : Camera;
+var<private> state : uint4;
+var<private> bokehRad : float;
 
-#storage hist_atomic array<atomic<u32>>
+fn pcg4d(a: uint4) -> uint4
+{
+	var v = a * 1664525u + 1013904223u;
+    v.x += v.y*v.w; v.y += v.z*v.x; v.z += v.x*v.y; v.w += v.y*v.z;
+    v = v ^  ( v >> uint4(16u) );
+    v.x += v.y*v.w; v.y += v.z*v.x; v.z += v.x*v.y; v.w += v.y*v.z;
+    return v;
+}
 
-#storage h array<u32>
+fn rand4() -> float4
+{
+    state = pcg4d(state);
+    return float4(state)/float(0xffffffffu);
+}
 
-fn projParticle(_p: v3) -> v3{
-    var p = _p; // you still can't modify args in wgsl???
-    // p *= rotY(muv.x*2.);
-    
-    p += sin(v3(3.,2.,1.) + Tb*0.7)*0.1;
+fn nrand4(sigma: float, mean: float4) -> float4
+{
+    let Z = rand4();
+    return mean + sigma * sqrt(-2.0 * log(Z.xxyy)) *
+           float4(cos(TWO_PI * Z.z),sin(TWO_PI * Z.z),cos(TWO_PI * Z.w),sin(TWO_PI * Z.w));
+}
 
-    p *= rotZ(Tb*0.6 + sin(Tb)*0.6);
-    // p *= rotX(muv.y*2.);
-    p *= rotY(Tb*0.3+ sin(Tb*0.8)*0.35);
+fn disk(r: float2) -> float2
+{
+    return vec2(sin(TWO_PI*r.x), cos(TWO_PI*r.x))*(r.y);
+}
 
-    p = p/mix(1.0,(dot(p,p)+4.),custom.C);
-    p.z += 0.6;
-    p /= p.z*(.2 + custom.B*1.);
-    p.z = _p.z;
-    p.x /= R.x/R.y;
+fn GetCameraMatrix(ang: float2) -> float3x3
+{
+    let x_dir = float3(cos(ang.x)*sin(ang.y), cos(ang.y), sin(ang.x)*sin(ang.y));
+    let y_dir = normalize(cross(x_dir, float3(0.0,1.0,0.0)));
+    let z_dir = normalize(cross(y_dir, x_dir));
+    return float3x3(-x_dir, y_dir, z_dir);
+}
+
+fn SetCamera(ang: float2, fov: float)
+{
+    camera.fov = fov;
+    camera.cam = GetCameraMatrix(ang);
+    camera.pos = - (camera.cam*float3(15.0*custom.Radius+0.5,0.0,0.0));
+    camera.size = float2(textureDimensions(screen));
+}
+
+//project to clip space
+fn Project(cam: Camera, p: float3) -> float3
+{
+    let td = distance(cam.pos, p);
+    let dir = (p - cam.pos)/td;
+    let screen = dir*cam.cam;
+    return float3(screen.yz*cam.size.y/(cam.fov*screen.x) + 0.5*cam.size,screen.x*td);
+}
+
+fn LoadParticle(pix: int2) -> Particle
+{
+    var p: Particle;
+    p.position = textureLoad(pass_in, pix, 0, 0);
+    p.velocity = textureLoad(pass_in, pix, 1, 0);
     return p;
 }
 
-fn t_spherical(p: v3, rad: float, offs: v3) -> v3{
-    return p/(dot(p,p)*rad + offs);
+fn SaveParticle(pix: int2, p: Particle)
+{
+    textureStore(pass_out, pix, 0, p.position);
+    textureStore(pass_out, pix, 1, p.velocity);
 }
 
-#workgroup_count Splat 64 64 2
-@compute @workgroup_size(256, 1,1)
-fn Splat(@builtin(global_invocation_id) id: uint3) {
-    let Ru = uint2(textureDimensions(screen));
-    if (id.x >= Ru.x || id.y >= Ru.y) { return; }
-    R = v2(Ru); U = v2(id.xy); muv = (v2(mouse.pos) - 0.5*R)/R.y;
-    
-    seed = hash_u(id.x + hash_u(Ru.x*id.y*200u)*20u + hash_u(id.x)*250u + hash_u(id.z)*250u );
-    seed = hash_u(seed);
-
-    let particleIdx = id.x;
-    
-    let iters = 1060;
-    
-    var t = T - hash_f()*1./30.;
-
-    var env = t + sin(t)*0.5;
-    var envb = sin(t*0.45);
-
-    var p = hash_v3();
-
-    let focusDist = (custom.DOF_Focal_Dist*2. - 1.)*5.;
-    let dofFac = 1./vec2(R.x/R.y,1.)*custom.DOF_Amount;
-    for(var i = 0; i < iters; i++){
-        let r = hash_f();
-        if(r<.1){
-            p = p/(dot(p,p)*1.5 + 0.);
-            if(hash_f() < 0.5){
-                // p.z = -p.z;
-                p = -p;
-            }
-
-        } else if(r< 0.2){
-            p = p/(dot(p,p)*(1. - custom.D*8.) + 0.1); 
-        } else {
-            p = p * rotZ(0.4 + (custom.A*2. - 1.) + sin(Tb*0.7)*0.1);
-            p += 0.4;
-        }
-        
-        var q = projParticle(p);
-        var k = q.xy;
-
-        k += sample_disk()*abs(q.z - focusDist)*0.05*dofFac;
-        
-        let uv = k.xy/2. + 0.5;
-        let cc = uv2(uv.xy*R.xy);
-        let idx = cc.x + Ru.x * cc.y;
-        if ( 
-            // q.z > -20.
-            uv.x > 0. && uv.x < 1. 
-            && uv.y > 0. && uv.y < 1. 
-            && idx < uint(Ru.x*Ru.y)
-            ){     
-            atomicAdd(&hist_atomic[idx],1u);
-            atomicAdd(&hist_atomic[idx + Ru.x*Ru.y],uint(r*100.));
-        }
-    }
+fn ForceField(pos: float3, t: float) -> float4
+{
+    let a0 = float3(sin(t),cos(0.4*t),cos(t));
+    let d = distance(pos, a0);
+    let F = (a0 - pos)*(1.0/(d*d*d + 1e-3) - 0.4/(d*d*d*d + 1e-3)) + 1e-3;
+    return 0.2*float4(F, 0.0);
 }
 
 @compute @workgroup_size(16, 16)
-fn main_image(@builtin(global_invocation_id) id: uint3) {
-    let res = uint2(textureDimensions(screen));
-    if (id.x >= res.x || id.y >= res.y) { return; }
+fn SimulateParticles(@builtin(global_invocation_id) id: uint3)
+{
+    var pix = int2(id.xy);
+    var p = LoadParticle(pix);
 
-    R = v2(res);
-    U = v2(id.xy);
-    let U = float2(float(id.x) + .5, float(res.y - id.y) - .5);
+    if(pix.x > PARTICLE_COUNT || pix.y > PARTICLE_COUNT)
+    {
+        return;
+    }
 
-    
-    let hist_id = id.x + uint(R.x) * id.y;
+    state = uint4(id.x, id.y, id.z, time.frame);
 
-    var col = float(atomicLoad(&hist_atomic[hist_id]))*vec3(3.0);
-    
-    var col_pal = float(atomicLoad(&hist_atomic[hist_id + res.x*res.y]))*vec3(3.0);
-    
-    kCols[1] *= rotY(1. - 0.347*log(col.x*1.)*4. + col_pal.x*0.0001);
-    // tonemap
-    let sc = 124452.7;
-    col = log( col*0.3)/ log(sc);
+    if(time.frame == 0u)
+    {
+        let rng = rand4();
+        p.position = float4(2.0*rng.xyz - 1.0, 0.0);
+        p.velocity = float4(0.0,0.0,0.0,0.0);
+    }
+    let t = fract(custom.Speed*float(time.frame)/800.0)*30.0;
+
+    if(mouse.click == 1)
+    {
+        return;
+    }
+
+    if(t < 0.05)
+    {
+        p.velocity -= 0.5 * p.velocity * length(p.velocity);
+    }
+
+    let dt = custom.Speed * custom.TimeStep;
+    p.velocity += (ForceField(p.position.xyz, t) - custom.VelocityDecay*p.velocity) * dt;
+    p.position += p.velocity * dt;
+
+    SaveParticle(pix, p);
+}
+
+@compute @workgroup_size(16, 16)
+fn Clear(@builtin(global_invocation_id) id: uint3) {
+    let screen_size = int2(textureDimensions(screen));
+    let idx0 = int(id.x) + int(screen_size.x * int(id.y));
+
+    atomicStore(&atomic_storage[idx0*4+0], 0);
+    atomicStore(&atomic_storage[idx0*4+1], 0);
+    atomicStore(&atomic_storage[idx0*4+2], 0);
+    atomicStore(&atomic_storage[idx0*4+3], 0);
+}
+
+fn AdditiveBlend(color: float3, depth: float, index: int)
+{
+    let scaledColor = 256.0 * color/depth;
+
+    atomicAdd(&atomic_storage[index*4+0], int(scaledColor.x));
+    atomicAdd(&atomic_storage[index*4+1], int(scaledColor.y));
+    atomicAdd(&atomic_storage[index*4+2], int(scaledColor.z));
+}
 
 
-    col = col*mix_cols(col.x*1.);
-    // col += 0.01;
-    // col = mix_cols(log(col_pal.x)*0.5);
+fn RasterizePoint(pos: float3, color: float3)
+{
+    let screen_size = int2(camera.size);
+    let projectedPos = Project(camera, pos);
 
-    //col = smoothstep(v3(0.),v3(1.),col*mix_cols(col.x*1.));
+    let screenCoord = int2(projectedPos.xy);
 
-    col = pow((col), float3(1./0.45454545));
-    textureStore(screen, int2(id.xy), float4(col, 1.));
-    
+    //outside of our view
+    if(screenCoord.x < 0 || screenCoord.x >= screen_size.x ||
+        screenCoord.y < 0 || screenCoord.y >= screen_size.y || projectedPos.z < 0.0)
+    {
+        return;
+    }
 
-    // clear flame
-    // hist[id.x + uint(R.x) * id.y] = 0;
-    atomicStore(&hist_atomic[hist_id],0u);
-    atomicStore(&hist_atomic[hist_id + res.x*res.y],0u);
+    let idx = screenCoord.x + screen_size.x * screenCoord.y;
+
+    AdditiveBlend(color, projectedPos.z, idx);
+}
+
+@compute @workgroup_size(16, 16)
+fn Rasterize(@builtin(global_invocation_id) id: uint3) {
+    // Viewport resolution (in pixels)
+    let screen_size = int2(textureDimensions(screen));
+    let screen_size_f = float2(screen_size);
+
+    let ang = float2(mouse.pos.xy)*float2(-TWO_PI, PI)/screen_size_f + 1e-4;
+
+    SetCamera(ang, FOV);
+
+    //RNG state
+    state = uint4(id.x, id.y, id.z, 0u);
+
+    let rng = rand4();
+    bokehRad = pow(rng.x, custom.BlurExponent1);
+
+    if(mouse.click == 1 && custom.AnimatedNoise > 0.5)
+    {
+        state.w = time.frame;
+    }
+
+    var pix = int2(id.xy);
+
+    if(pix.x > PARTICLE_COUNT || pix.y > PARTICLE_COUNT)
+    {
+        return;
+    }
+
+    var p = LoadParticle(pix);
+
+    var pos = p.position.xyz;
+    var col = 5.5*abs(p.velocity.xyz)*dot(p.velocity,p.velocity)+0.1;
+    col /= (0.1+bokehRad);
+    let impSample = (col.x + col.y + col.z)*bokehRad;
+    let sampleCount = clamp(int(impSample*custom.Samples*MaxSamples + 1.0), 1, 1024);
+    let normalCount = int(custom.Samples*MaxSamples + 1.0);
+
+    col *= float(normalCount)/float(sampleCount);
+
+    for(var i = 0; i < sampleCount; i++)
+    {
+        let R = 2.0*custom.BlurRadius*bokehRad;
+        let rng = rand4();
+        let dpos = R*normalize(nrand4(1.0, float4(0.0)).xyz)*pow(rng.x, custom.BlurExponent2);
+        RasterizePoint(pos + dpos, col);
+    }
+}
+
+fn Sample(pos: int2) -> float3
+{
+    let screen_size = int2(textureDimensions(screen));
+    let idx = pos.x + screen_size.x * pos.y;
+
+    var color: float3;
+        let x = float(atomicLoad(&atomic_storage[idx*4+0]))/(256.0);
+        let y = float(atomicLoad(&atomic_storage[idx*4+1]))/(256.0);
+        let z = float(atomicLoad(&atomic_storage[idx*4+2]))/(256.0);
+
+        color = tanh(custom.Exposure*0.03*float(screen_size.x)*float3(x,y,z)/(custom.Samples*MaxSamples + 1.0));
+
+    return abs(color);
+}
+
+@compute @workgroup_size(16, 16)
+fn main_image(@builtin(global_invocation_id) id: uint3)
+{
+    let screen_size = uint2(textureDimensions(screen));
+
+    // Prevent overdraw for workgroups on the edge of the viewport
+    if (id.x >= screen_size.x || id.y >= screen_size.y) { return; }
+
+    // Pixel coordinates (centre of pixel, origin at bottom left)
+    let fragCoord = float2(float(id.x) + .5, float(id.y) + .5);
+
+
+    var color = float4(Sample(int2(id.xy)),1.0);
+
+    let oldColor = textureLoad(pass_in, int2(id.xy), 2, 0);
+
+    if(mouse.click == 1 && custom.AnimatedNoise > 0.5)
+    {
+        color += oldColor * custom.Accumulation;
+    }
+
+    // Output to buffer
+    textureStore(pass_out, int2(id.xy), 2, color);
+
+    textureStore(screen, int2(id.xy), float4(color.xyz/color.w, 1.));
 }
