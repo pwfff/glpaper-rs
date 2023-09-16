@@ -1,21 +1,17 @@
-use anyhow::{Result};
+use std::sync::Arc;
+
+use anyhow::Result;
 use pollster::block_on;
-use sctk::{
-    output::OutputInfo,
-    shell::{wlr_layer::LayerSurface, WaylandSurface},
-};
-use wayland_client::Proxy;
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 pub struct OutputSurface {
-    layer: LayerSurface,
     pub toy: Option<WgpuToyRenderer>,
 }
 
 impl OutputSurface {
     pub fn new(
-        output_info: OutputInfo,
-        layer: LayerSurface,
+        width: u32,
+        height: u32,
         device: wgpu::Device,
         surface: wgpu::Surface,
         adapter: wgpu::Adapter,
@@ -24,16 +20,14 @@ impl OutputSurface {
         let swapchain_capabilities = surface.get_capabilities(&adapter);
         let swapchain_format = swapchain_capabilities.formats[0];
 
-        let (width, height) = output_info.logical_size.unwrap();
-
         let surface_config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format: swapchain_format,
             view_formats: vec![],
             //view_formats: vec![cap.formats[0]],
             alpha_mode: wgpu::CompositeAlphaMode::Auto,
-            width: width.unsigned_abs(),
-            height: height.unsigned_abs(),
+            width,
+            height,
             // Wayland is inherently a mailbox system.
             present_mode: wgpu::PresentMode::Mailbox,
         };
@@ -71,21 +65,28 @@ impl OutputSurface {
             1.0, 0.072, 0.218, 0.0, 1.0, 0.369, 0.393, 0.743, 0.81, 0.876, 0.0, 0.719, 0.22, 0.387,
             0.53, 0.0, 0.827,
         ];
+
+        let names = vec![
+            "A".to_string(),
+            "B".to_string(),
+            "C".to_string(),
+            "DOF_Amount".to_string(),
+            "DOF_Focal_Dist".to_string(),
+            "Paused".to_string(),
+            "D".to_string(),
+        ];
+        let values: Vec<f32> = vec![0.059, 0.019, 0.08, 0.882, 0.503, 0.454, 0.127];
+
         toy.set_custom_floats(names, values);
 
         let map =
             block_on(toy.preprocess_async(include_str!("./assets/fragment.default.wgsl"))).unwrap();
-        println!("{}", map.source);
+        //println!("{}", map.source);
         toy.compile(map);
 
-        OutputSurface {
-            layer,
-            toy: Some(toy),
-        }
-    }
+        println!("well it compiled?");
 
-    pub fn layer_matches(&self, layer: &LayerSurface) -> bool {
-        self.layer.wl_surface().id() == layer.wl_surface().id()
+        OutputSurface { toy: Some(toy) }
     }
 
     pub fn render(&mut self) -> Result<()> {
@@ -95,9 +96,9 @@ impl OutputSurface {
                 //r.frame_start(&mut self.surface)?;
                 //r.render(&mut self.device, &mut self.queue)?;
                 //r.frame_finish()
-                Ok(())
             }
-            None => Ok(()),
+            None => println!("toy went away?"),
         }
+        Ok(())
     }
 }
