@@ -156,7 +156,7 @@ impl OutputSurface {
 
         let ctx = WgpuContext {
             device: device.into(),
-            queue,
+            queue: queue.into(),
             surface,
             surface_config,
         };
@@ -234,7 +234,7 @@ impl OutputSurface {
             return Ok(());
         }
 
-        if time - self.last_render_time < 1000 / 3 {
+        if time - self.last_render_time < 1000 / 10 {
             return Ok(());
         }
 

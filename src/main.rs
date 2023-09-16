@@ -1,4 +1,9 @@
-use std::{io, time::{Duration, Instant}, sync::{Arc, Mutex}, thread};
+use std::{
+    io,
+    sync::{Arc, Mutex},
+    thread,
+    time::{Duration, Instant},
+};
 
 use anyhow::{anyhow, Result};
 
@@ -42,14 +47,25 @@ async fn main() -> Result<()> {
     //event_queue.blocking_dispatch(&mut background_layer)?;
     event_queue.roundtrip(&mut bg).unwrap();
 
-    let mut oses = vec![];
-    for output in bg.output_state().outputs() {
+    let pattern = std::env::args().nth(1).expect("no display given");
+
+    let os = match bg.output_state().outputs().find_map(|output| {
         let output_info = bg.output_state().info(&output).unwrap();
-        let os = OutputSurface::new(conn.clone(), qh.clone(), &bg, &output, &output_info).await?;
-        let arctex: Arc<Mutex<OutputSurface>> = Arc::new(os.into());
-        bg.add_toy(arctex.clone());
-        oses.push(arctex);
-    }
+        if output_info.clone().name.unwrap() != pattern {
+            None
+        } else {
+            Some((output, output_info))
+        }
+    }) {
+        Some((output, output_info)) => {
+            OutputSurface::new(conn.clone(), qh.clone(), &bg, &output, &output_info)
+                .await
+                .unwrap()
+        }
+        None => return Err(anyhow!("couldn't find display")),
+    };
+
+    bg.add_toy(Arc::new(Mutex::new(os)));
 
     //let mut event_loop: EventLoop<BackgroundLayer> =
     //    EventLoop::try_new().expect("Failed to initialize the event loop!");
@@ -63,10 +79,7 @@ async fn main() -> Result<()> {
     //let mut ugh = tokio::time::interval(Duration::from_millis(1000/10));
     let start = Instant::now();
     loop {
-        for os in oses.iter_mut() {
-            let mut os = os.lock().unwrap();
-            os.render(start.elapsed().as_millis() as u32).unwrap();
-        }
+        bg.render(start.elapsed().as_millis() as u32);
 
         event_queue.dispatch_pending(&mut bg).unwrap();
         //event_queue.blocking_dispatch(&mut bg)?;

@@ -43,7 +43,7 @@ pub struct BackgroundLayer {
     pub layer_shell: Arc<LayerShell>,
 
     start_time: Instant,
-    oses: RefCell<HashMap<ObjectId, Arc<Mutex<OutputSurface>>>>,
+    os: Option<Arc<Mutex<OutputSurface>>>,
 
     pub exit: bool,
 }
@@ -60,15 +60,23 @@ impl BackgroundLayer {
             layer_shell: LayerShell::bind(&globals, &qh)?.into(),
 
             start_time,
-            oses: Default::default(),
+            os: None,
 
             exit: false,
         })
     }
 
     pub fn add_toy(&mut self, os: Arc<Mutex<OutputSurface>>) {
-        let id = {os.lock().unwrap().layer.wl_surface().id().clone()};
-        self.oses.get_mut().insert(id, os.into());
+        self.os = Some(os);
+    }
+
+    pub fn render(&mut self, time: u32) {
+        let os = match &self.os {
+            Some(os) => os,
+            None => return,
+        };
+        let mut os = os.lock().unwrap();
+        os.render(time);
     }
 }
 
@@ -100,12 +108,11 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         time: u32,
     ) {
-        let os = match self.oses.get_mut().get(&surface.id()) {
+        let os = match &self.os {
             Some(os) => os,
             None => return,
         };
-        let mut os = os.lock().unwrap();
-        os.frame_callback_received();
+        os.lock().unwrap().frame_callback_received();
         //os.render(time).unwrap();
         //self.render().unwrap();
     }
@@ -123,7 +130,7 @@ impl LayerShellHandler for BackgroundLayer {
         println!("configured");
         let id = &layer.wl_surface().id();
         println!("{:?}", id);
-        if let Some(os) = self.oses.get_mut().get(id) {
+        if let Some(os) = &self.os {
             println!("initial frame_callback_received");
             os.lock().unwrap().frame_callback_received();
             //os.lock().unwrap().render(time).unwrap();
