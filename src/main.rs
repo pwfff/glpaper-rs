@@ -66,7 +66,7 @@ async fn main() -> Result<()> {
     };
 
     // immediately prep one frame
-    os.draw()?;
+    //os.draw()?;
     //os.request_frame_callback();
 
     bg.add_toy(Arc::new(Mutex::new(os)));
@@ -102,7 +102,7 @@ async fn main() -> Result<()> {
         //event_queue.blocking_dispatch(&mut bg)?;
         //event_queue.flush()?;
 
-        event_loop.dispatch(Duration::from_millis(1), &mut bg)?;
+        event_loop.dispatch(Duration::from_millis(5000), &mut bg)?;
 
         //for os in oses.iter_mut() {
         //    let mut os = os.lock().unwrap();

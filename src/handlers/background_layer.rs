@@ -139,6 +139,7 @@ impl CompositorHandler for BackgroundLayer {
         surface: &wl_surface::WlSurface,
         time: u32,
     ) {
+        //println!("frame!!!!");
         if match &self.os {
             Some(os) => match os.lock() {
                 Ok(os) => os.is(surface),
@@ -168,14 +169,17 @@ impl LayerShellHandler for BackgroundLayer {
         time: u32,
     ) {
         println!("configure");
-        if match &self.os {
+        match &self.os {
             Some(os) => match os.lock() {
-                Ok(os) => os.is(layer.wl_surface()),
-                Err(_) => false,
+                Ok(mut os) => {
+                    if os.is(layer.wl_surface()) {
+                        os.draw();
+                        os.render();
+                    }
+                }
+                Err(_) => {}
             },
-            None => false,
-        } {
-            self.render();
+            None => {}
         }
         //let id = &layer.wl_surface().id();
         //println!("{:?}", id);

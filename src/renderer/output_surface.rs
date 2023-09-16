@@ -222,7 +222,9 @@ impl OutputSurface {
     }
 
     pub fn draw(&mut self) -> Result<()> {
+        //println!("drawlin");
         if self.submitted_frame.is_some() {
+            //println!("already got one hun");
             return Ok(());
         }
 
