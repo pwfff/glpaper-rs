@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{time::Duration, io};
 
 use anyhow::{anyhow, Result};
 
@@ -6,12 +6,13 @@ use handlers::background_layer::BackgroundLayer;
 use sctk::{
     compositor::CompositorState,
     output::OutputHandler,
+    reexports::calloop::EventLoop,
     shell::{
         wlr_layer::{Anchor, KeyboardInteractivity, Layer, LayerShell, LayerSurface},
         WaylandSurface,
     },
 };
-use wayland_client::{globals::registry_queue_init, Connection};
+use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 
 mod handlers;
 mod renderer;
@@ -63,19 +64,25 @@ async fn main() -> Result<()> {
 
     // dispatch once to get everything set up. probably unnecessary?
     //event_queue.blocking_dispatch(&mut background_layer)?;
+    event_queue.roundtrip(&mut bg).unwrap();
 
-    //WaylandSource::new(event_queue)
-    //    .unwrap()
-    //    .insert(loop_handle)
-    //    .unwrap();
+    let mut event_loop: EventLoop<BackgroundLayer> =
+        EventLoop::try_new().expect("Failed to initialize the event loop!");
+    let loop_handle = event_loop.handle();
+    WaylandSource::new(event_queue)
+        .unwrap()
+        .insert(loop_handle)
+        .unwrap();
 
     // TODO: this seems wrong...
-    let mut ugh = tokio::time::interval(Duration::from_millis(20));
-        event_queue.roundtrip(&mut bg).unwrap();
+    let mut ugh = tokio::time::interval(Duration::from_millis(1000/10));
     loop {
         //event_queue.dispatch_pending(&mut bg).unwrap();
-        event_queue.blocking_dispatch(&mut bg).unwrap();
-        //event_loop.run(Duration::from_millis(100), &mut background_layer, |bg| {
+        //event_queue.blocking_dispatch(&mut bg).unwrap();
+
+        event_loop.dispatch(Duration::from_millis(1), &mut bg)?;
+        ugh.tick().await;
+        bg.render().await.unwrap();
         //    //bg.render();
         //    //let time = start_time.elapsed().as_secs_f32() / 100.0;
 
@@ -97,10 +104,6 @@ async fn main() -> Result<()> {
             println!("exiting example");
             break;
         }
-
-        pollster::block_on(ugh.tick());
-
-        bg.render()?;
     }
 
     for layer in layers {

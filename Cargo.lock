@@ -1158,6 +1158,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "env_logger",
+ "futures",
  "pollster 0.2.5",
  "raw-window-handle",
  "smithay-client-toolkit 0.17.0",

@@ -1,6 +1,6 @@
 use anyhow::Result;
+use std::{collections::HashMap, sync::Arc, time::Instant};
 use wayland_backend::client::ObjectId;
-use std::{sync::Arc, time::Instant, collections::HashMap};
 
 use crate::renderer::output_surface::OutputSurface;
 
@@ -76,10 +76,29 @@ impl BackgroundLayer {
         })
     }
 
-    pub fn render(&mut self) -> Result<()> {
+    pub async fn render(&mut self) -> Result<()> {
+        let time = self.start_time.elapsed().as_secs_f32() / 10.0;
+        let mut handles = vec![];
         for os in self.oses.values_mut() {
-            os.render()?;
+            match os.toy.as_mut() {
+                Some(toy) => {
+                    toy.set_time_elapsed(time);
+                    handles.push(toy.render_async());
+                    //match toy.wgpu.surface.get_current_texture() {
+                    //    Ok(f) => {
+                    //        let buf = toy.render_to(f);
+
+                    //        println!("ididit");
+                    //    }
+                    //    Err(e) => {
+                    //        println!("{:?}", e)
+                    //    }
+                    //};
+                }
+                None => {}
+            }
         }
+        futures::future::join_all(handles).await;
         Ok(())
     }
 }
@@ -112,27 +131,8 @@ impl CompositorHandler for BackgroundLayer {
         _surface: &wl_surface::WlSurface,
         _time: u32,
     ) {
-        let time = self.start_time.elapsed().as_secs_f32() / 100.0;
         println!("frame");
-        for os in self.oses.values_mut() {
-            match os.toy.as_mut() {
-                Some(toy) => {
-                    toy.set_time_elapsed(time);
-                    pollster::block_on(toy.render_async());
-                    //match toy.wgpu.surface.get_current_texture() {
-                    //    Ok(f) => {
-                    //        let buf = toy.render_to(f);
-
-                    //        println!("ididit");
-                    //    }
-                    //    Err(e) => {
-                    //        println!("{:?}", e)
-                    //    }
-                    //};
-                }
-                None => {}
-            }
-        }
+        //self.render().unwrap();
     }
 }
 
@@ -148,24 +148,12 @@ impl LayerShellHandler for BackgroundLayer {
         let id = &layer.wl_surface().id();
 
         if self.oses.contains_key(id) {
-            return
+            return;
         };
 
         println!("configuring");
         let (width, height) = c.new_size;
-        //let surface = self.compositor_state.create_surface(&qh);
-        //let layer = self.layer_shell.create_layer_surface(
-        //    &qh,
-        //    surface,
-        //    Layer::Background,
-        //    Some("glpaper-rs"),
-        //    Some(&output),
-        //);
-        //layer.set_size(123, 123);
-        //layer.set_anchor(Anchor::TOP | Anchor::LEFT);
-        //layer.set_keyboard_interactivity(KeyboardInteractivity::None);
-        //println!("pee");
-        //layer.commit();
+
         println!("ughhghguhguhg");
         // Initialize wgpu
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -199,20 +187,10 @@ impl LayerShellHandler for BackgroundLayer {
 
         println!("got device and stuf..");
 
-        //let device_arc: Arc<Device> = device.into();
-        //let device_clone = device_arc.clone();
-        //std::thread::spawn(move || loop {
-        //    device_clone.poll(wgpu::Maintain::Wait);
-        //});
-
-        self.oses.insert(id.clone(), OutputSurface::new(
-            width,
-            height,
-            device,
-            surface,
-            adapter,
-            queue,
-        ));
+        self.oses.insert(
+            id.clone(),
+            OutputSurface::new(width, height, device, surface, adapter, queue),
+        );
 
         //layer.wl_surface().frame(qh, layer.wl_surface().clone());
         //for output_surface in self.output_surfaces.iter_mut() {

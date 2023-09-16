@@ -92,6 +92,8 @@ impl OutputSurface {
     pub fn render(&mut self) -> Result<()> {
         match self.toy {
             Some(ref mut r) => {
+                //let frame = r.wgpu.surface.get_current_texture()?;
+                //r.render_to(frame);
                 block_on(r.render_async());
                 //r.frame_start(&mut self.surface)?;
                 //r.render(&mut self.device, &mut self.queue)?;
