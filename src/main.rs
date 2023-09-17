@@ -19,7 +19,7 @@ use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 mod handlers;
 mod renderer;
 
-const FPS: f32 = 60.;
+const FPS: f32 = 30.;
 const MSPF: f32 = 1000. / FPS;
 
 #[tokio::main]

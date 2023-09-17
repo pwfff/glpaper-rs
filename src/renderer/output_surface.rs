@@ -1,5 +1,4 @@
 use std::time::Instant;
-use std::{collections::HashMap, fmt::format};
 
 use anyhow::Result;
 use pollster::block_on;
@@ -10,7 +9,7 @@ use raw_window_handle::{
 use sctk::shell::{wlr_layer::LayerSurface, WaylandSurface};
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Proxy};
-use wgpu::{Maintain, SubmissionIndex, SurfaceTexture};
+use wgpu::{Maintain, SubmissionIndex, SurfaceTexture, MaintainBase};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 pub struct OutputSurface {
@@ -188,18 +187,16 @@ impl OutputSurface {
         self.toy.wgpu.device.poll(Maintain::Poll);
 
         if self.submitted_frame.is_some() {
-            //println!("already got one hun");
             return Ok(());
         }
 
         let time = self.start_time.elapsed().as_micros();
-        //r.set_time_elapsed(time);
         self.toy.set_time_elapsed(time as f32 / 100.);
         let frame = self.toy.wgpu.surface.get_current_texture()?;
-        let (_, submitted) = self.toy.render_to(frame);
-        self.submitted_frame = Some(submitted);
+        let (_, i) = self.toy.render_to(&frame);
+        self.submitted_frame = Some((frame, i));
 
-        self.toy.wgpu.device.poll(Maintain::Poll);
+        self.toy.wgpu.device.poll(MaintainBase::Poll);
 
         Ok(())
     }
@@ -209,7 +206,7 @@ impl OutputSurface {
             self.toy
                 .wgpu
                 .device
-                .poll(Maintain::WaitForSubmissionIndex(i.clone()));
+                .poll(MaintainBase::WaitForSubmissionIndex(i.clone()));
         }
 
         Ok(())
