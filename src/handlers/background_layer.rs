@@ -88,6 +88,14 @@ impl BackgroundLayer {
         self.layer_surface = Some(layer);
     }
 
+    pub fn reset(&mut self) -> Result<()> {
+        if let Some(ref mut os) = self.os {
+            return os.reset();
+        }
+
+        Ok(())
+    }
+
     pub fn set_fft(&mut self, max_f: f32, max_fv: f32) {
         match self.os {
             Some(ref mut os) => os.set_fft(max_f, max_fv),

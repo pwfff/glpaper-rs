@@ -1,7 +1,6 @@
 use std::time::Instant;
 
 use anyhow::Result;
-use pollster::block_on;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
     WaylandDisplayHandle, WaylandWindowHandle,
@@ -9,7 +8,8 @@ use raw_window_handle::{
 use sctk::shell::{wlr_layer::LayerSurface, WaylandSurface};
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Proxy};
-use wgpu::{Maintain, SubmissionIndex, SurfaceTexture, MaintainBase};
+use wgpu::{Maintain, MaintainBase, SubmissionIndex, SurfaceTexture};
+use wgputoy::shader::{FolderLoader, ShaderLoader, Uniform};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 pub struct OutputSurface {
@@ -18,6 +18,7 @@ pub struct OutputSurface {
     submitted_frame: Option<(SurfaceTexture, SubmissionIndex)>,
 
     exp: f32,
+    original_uniforms: Vec<wgputoy::shader::Uniform>,
 }
 
 impl OutputSurface {
@@ -26,7 +27,7 @@ impl OutputSurface {
         layer: &LayerSurface,
         width: u32,
         height: u32,
-    ) -> Result<Self> {
+    ) -> Result<Self, String> {
         println!("creating output surface");
 
         // Initialize wgpu
@@ -129,61 +130,59 @@ impl OutputSurface {
         //];
         //let values: Vec<f32> = vec![0.059, 0.019, 0.08, 0.882, 0.503, 0.454, 0.127];
 
-        let (names, values) = Self::custom_floats_vec(Self::custom_floats_map());
-        toy.set_custom_floats(names, values);
+        let loader = FolderLoader::new("../wgpu-compute-toy/examples".to_string());
+        let shader = loader.load(&"michael0884/stardust".to_string())?;
+        let original_uniforms = shader.meta.uniforms.to_vec();
 
-        let map =
-            block_on(toy.preprocess_async(include_str!("./assets/fragment.default.wgsl"))).unwrap();
+        toy.load_shader(shader).await?;
+
+        //let map = block_on(toy.preprocess_async()).unwrap();
         //println!("{}", map.source);
-        toy.compile(map);
+        //toy.compile(map);
 
         println!("well it compiled?");
 
         Ok(Self {
             toy,
+            original_uniforms,
             start_time: Instant::now(),
             submitted_frame: None,
             exp: 0.9,
         })
     }
 
-    fn custom_floats_map() -> Vec<(String, f32)> {
-        vec![
-            (format!("Radius"), 0.551),
-            (format!("TimeStep"), 0.053),
-            (format!("Samples"), 0.1),
-            (format!("BlurRadius"), 0.489),
-            (format!("VelocityDecay"), 0.018),
-            (format!("Speed"), 0.197),
-            (format!("BlurExponent1"), 0.621),
-            (format!("BlurExponent2"), 0.),
-            (format!("AnimatedNoise"), 1.),
-            (format!("Accumulation"), 0.962),
-            (format!("Exposure"), 0.224),
-        ]
-    }
-
-    fn custom_floats_vec(fs: Vec<(String, f32)>) -> (Vec<String>, Vec<f32>) {
-            fs.iter().fold((vec![], vec![]), |(mut ks, mut vs), (k, v)| {
-                ks.push(k.clone());
-                vs.push(*v);
+    fn custom_floats_vec(fs: Vec<Uniform>) -> (Vec<String>, Vec<f32>) {
+        fs.iter()
+            .fold((vec![], vec![]), |(mut ks, mut vs), u| {
+                ks.push(u.name.clone());
+                vs.push(u.value);
                 (ks, vs)
             })
     }
 
     pub fn set_fft(&mut self, med_fv: f32, max_fv: f32) {
-        let mut fs = Self::custom_floats_map();
-        self.exp = med_fv.max(0.1).max(self.exp) * 0.9;
-        for kv in fs.iter_mut() {
-            if kv.0 == "BlurRadius" {
-                kv.1 = self.exp;
+        let mut fs = self.original_uniforms.to_vec();
+        self.exp = med_fv.max(0.1).max(self.exp) * 0.75;
+        for u in fs.iter_mut() {
+            if u.name == "Exposure" {
+                u.value = self.exp;
             }
         }
         let (names, values) = Self::custom_floats_vec(fs);
         self.toy.set_custom_floats(names, values)
     }
 
+    pub fn load_shader(&mut self) -> Result<()> {
+        Ok(())
+    }
+
+    pub fn reset(&mut self) -> Result<()> {
+        self.toy.reset();
+        Ok(())
+    }
+
     pub fn draw(&mut self) -> Result<()> {
+        // TODO: is it ok if we only poll when actually rendering?
         self.toy.wgpu.device.poll(Maintain::Poll);
 
         if self.submitted_frame.is_some() {
@@ -193,7 +192,7 @@ impl OutputSurface {
         let time = self.start_time.elapsed().as_micros();
         self.toy.set_time_elapsed(time as f32 / 100.);
         let frame = self.toy.wgpu.surface.get_current_texture()?;
-        let (_, i) = self.toy.render_to(&frame);
+        let (_, i) = self.toy.render_to_surface(&frame);
         self.submitted_frame = Some((frame, i));
 
         self.toy.wgpu.device.poll(MaintainBase::Poll);

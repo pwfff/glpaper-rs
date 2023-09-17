@@ -19,7 +19,7 @@ wayland-csd-frame = { version = "0.2.2", default-features = false, features = ["
 bytemuck = { version = "1.12", features = ["derive"] }
 anyhow = "1.0.75"
 wgputoy = { path = "../wgpu-compute-toy", default-features = false }
-tokio = { version = "1.32.0", features = ["full"] }
+tokio = { version = "1.32.0", default-features = false }
 futures = "0.3.28"
 cpal = "0.15.2"
 spectrum-analyzer = "1.4.0"
