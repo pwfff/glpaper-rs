@@ -21,7 +21,7 @@ use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 mod handlers;
 mod renderer;
 
-const FPS: f32 = 30.;
+const FPS: f32 = 20.;
 const MSPF: f32 = 1000. / FPS;
 
 fn main() -> Result<()> {
@@ -31,6 +31,7 @@ fn main() -> Result<()> {
     let signal_source = Signals::new(&[Signal::SIGUSR2])?;
 
     tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
         .build()
         .unwrap()
         .block_on(async {

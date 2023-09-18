@@ -9,7 +9,7 @@ use sctk::shell::{wlr_layer::LayerSurface, WaylandSurface};
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Proxy};
 use wgpu::{Maintain, MaintainBase, SubmissionIndex, SurfaceTexture};
-use wgputoy::shader::{FolderLoader, ShaderLoader, Uniform};
+use wgputoy::shader::{load_shader, FolderLoader, Uniform, WebLoader};
 use wgputoy::{context::WgpuContext, WgpuToyRenderer};
 
 pub struct OutputSurface {
@@ -117,28 +117,16 @@ impl OutputSurface {
         };
         let mut toy = WgpuToyRenderer::new(ctx);
 
-        // TODO: big todo... get this stuff from the web?
-
-        //let names = vec![
-        //    "A".to_string(),
-        //    "B".to_string(),
-        //    "C".to_string(),
-        //    "DOF_Amount".to_string(),
-        //    "DOF_Focal_Dist".to_string(),
-        //    "Paused".to_string(),
-        //    "D".to_string(),
-        //];
-        //let values: Vec<f32> = vec![0.059, 0.019, 0.08, 0.882, 0.503, 0.454, 0.127];
-
-        let loader = FolderLoader::new("../wgpu-compute-toy/examples".to_string());
-        let shader = loader.load(&"michael0884/stardust".to_string())?;
+        let source_loader = FolderLoader::new("../wgpu-compute-toy/examples".to_string());
+        let web_loader = WebLoader::new();
+        let shader = load_shader(
+            &source_loader,
+            &web_loader,
+            &"michael0884/stardust".to_string(),
+        )?;
         let original_uniforms = shader.meta.uniforms.to_vec();
 
         toy.load_shader(shader).await?;
-
-        //let map = block_on(toy.preprocess_async()).unwrap();
-        //println!("{}", map.source);
-        //toy.compile(map);
 
         println!("well it compiled?");
 
@@ -152,12 +140,11 @@ impl OutputSurface {
     }
 
     fn custom_floats_vec(fs: Vec<Uniform>) -> (Vec<String>, Vec<f32>) {
-        fs.iter()
-            .fold((vec![], vec![]), |(mut ks, mut vs), u| {
-                ks.push(u.name.clone());
-                vs.push(u.value);
-                (ks, vs)
-            })
+        fs.iter().fold((vec![], vec![]), |(mut ks, mut vs), u| {
+            ks.push(u.name.clone());
+            vs.push(u.value);
+            (ks, vs)
+        })
     }
 
     pub fn set_fft(&mut self, med_fv: f32, max_fv: f32) {
@@ -166,6 +153,9 @@ impl OutputSurface {
         for u in fs.iter_mut() {
             if u.name == "Exposure" {
                 u.value = self.exp;
+            }
+            if u.name == "Samples" {
+                u.value = 0.2;
             }
         }
         let (names, values) = Self::custom_floats_vec(fs);
