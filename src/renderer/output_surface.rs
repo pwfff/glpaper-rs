@@ -5,7 +5,8 @@ use std::mem::size_of;
 use std::path::Path;
 use std::time::Instant;
 
-use anyhow::{anyhow, Result};
+use super::download;
+use anyhow::Result;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
     WaylandDisplayHandle, WaylandWindowHandle,
@@ -551,27 +552,20 @@ impl OutputSurface {
         layer: &LayerSurface,
         width: u32,
         height: u32,
+        shader_id: Option<String>,
     ) -> Result<Self, String> {
-        let av = ArgValues::default();
+        let av = ArgValues {
+            getid: shader_id,
+            ..Default::default()
+        };
         let vert_src_buf = load_vertex_shader();
         let frag_src_buf = match av.getid {
-            Some(ref _id) => {
-                return Err("next time".to_string());
-                //let (_, shadercode) = download::download(id)?;
-
-                //// Don't run default shader if downloading (with no --run flag).
-                //if av.getid.is_some() && !av.andrun {
-                //    return Ok(());
-                //}
-
-                //if av.andrun {
-                //    format_shader_src(&shadercode)
-                //} else {
-                //    load_fragment_shader(&av)?
-                //}
+            Some(ref id) => {
+                let (_, shadercode) = download::download(id).map_err(|e| format!("{}", e))?;
+                format_shader_src(&shadercode)
             }
-            None => load_fragment_shader(&av),
-        }?;
+            None => load_fragment_shader(&av)?,
+        };
 
         let shader_name = av
             .getid
@@ -677,8 +671,6 @@ impl OutputSurface {
 
         let globals = IGlobals::new(&av, &device, width, height);
         let globals_vec = globals.to_vec();
-
-        println!("{}", &frag_src_buf);
 
         let frag = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
@@ -881,6 +873,7 @@ impl OutputSurface {
             return Ok(());
         }
 
+        // TODO: actual like, uniforms support
         let time = self.start_time.elapsed().as_secs_f32();
         self.globals.i_time.host = time;
         self.globals.i_global_time.host = time;

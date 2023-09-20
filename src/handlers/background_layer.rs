@@ -38,16 +38,22 @@ pub struct BackgroundLayer {
     os: Option<OutputSurface>,
 
     pub exit: bool,
+    shader_id: Option<String>,
 }
 
 impl BackgroundLayer {
-    pub fn new(globals: &GlobalList, qh: &QueueHandle<Self>) -> Result<Self> {
+    pub fn new(
+        globals: &GlobalList,
+        shader_id: Option<String>,
+        qh: &QueueHandle<Self>,
+    ) -> Result<Self> {
         Ok(BackgroundLayer {
             registry_state: RegistryState::new(&globals),
             seat_state: SeatState::new(&globals, &qh),
             output_state: OutputState::new(&globals, &qh),
             compositor_state: CompositorState::bind(&globals, &qh)?.into(),
             layer_shell: LayerShell::bind(&globals, &qh)?.into(),
+            shader_id,
 
             os: None,
             layer_surface: None,
@@ -152,8 +158,14 @@ impl LayerShellHandler for BackgroundLayer {
         let surface = layer.wl_surface();
         match self.os {
             None => {
-                let mut os =
-                    block_on(OutputSurface::new(conn.clone(), layer, width, height)).unwrap();
+                let mut os = block_on(OutputSurface::new(
+                    conn.clone(),
+                    layer,
+                    width,
+                    height,
+                    self.shader_id.clone(),
+                ))
+                .unwrap();
                 surface.frame(qh, surface.clone());
                 os.draw().unwrap();
                 os.render(surface).unwrap();

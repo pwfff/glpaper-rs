@@ -27,6 +27,9 @@ const MSPF: f32 = 1000. / FPS;
 fn main() -> Result<()> {
     env_logger::init();
 
+    let requested_display = std::env::args().nth(1).expect("no display given");
+    let shader_id = std::env::args().nth(2);
+
     // have to init this before tokio or tokio will i guess just eat all our signals forever
     let signal_source = Signals::new(&[Signal::SIGUSR2])?;
 
@@ -43,11 +46,9 @@ fn main() -> Result<()> {
             let qh = event_queue.handle();
 
             // init state, do roundtrip to get display info
-            let mut bg = BackgroundLayer::new(&globals, &qh)?;
+            let mut bg = BackgroundLayer::new(&globals, shader_id, &qh)?;
 
             event_queue.roundtrip(&mut bg).unwrap();
-
-            let requested_display = std::env::args().nth(1).expect("no display given");
 
             match bg.output_state().outputs().find_map(|output| {
                 let output_info = bg.output_state().info(&output).unwrap();
