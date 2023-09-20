@@ -3,10 +3,11 @@ use std::fs::File;
 use std::io::Read;
 use std::mem::size_of;
 use std::path::Path;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::download;
 use anyhow::Result;
+use image::ImageBuffer;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
     WaylandDisplayHandle, WaylandWindowHandle,
@@ -19,12 +20,17 @@ use wgpu::{Maintain, MaintainBase, SubmissionIndex, SurfaceTexture};
 
 // TODO: add these
 // All unsupported uniforms. Attempting to use any of these in a shader will result in an error.
-pub static UNSUPPORTED_UNIFORMS: [&str; 5] = [
+pub static UNSUPPORTED_UNIFORMS: [&str; 9] = [
     "iTimeDelta",
     "iChannelTime",
     "iChannelResolution",
     "iDate",
     "iSampleRate",
+    // broken because https://github.com/gfx-rs/naga/issues/1012
+    "iChannel0",
+    "iChannel1",
+    "iChannel2",
+    "iChannel3",
 ];
 
 pub struct OutputSurface {
@@ -135,10 +141,6 @@ impl Binding for SamplerBinding {
     }
 }
 
-struct Vertex {
-    position: [f32; 2],
-}
-
 struct IGlobals {
     // Uniforms.
     i_global_time: BufferBinding<f32>,
@@ -170,20 +172,20 @@ impl IGlobals {
         //} else {
         //    "rgba16float"
         //};
-        //let blank = wgpu::TextureDescriptor {
-        //    size: wgpu::Extent3d {
-        //        width: 1,
-        //        height: 1,
-        //        depth_or_array_layers: 1,
-        //    },
-        //    mip_level_count: 1,
-        //    sample_count: 1,
-        //    dimension: wgpu::TextureDimension::D2,
-        //    format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        //    usage: wgpu::TextureUsages::TEXTURE_BINDING,
-        //    label: None,
-        //    view_formats: &[],
-        //};
+        let blank = wgpu::TextureDescriptor {
+            size: wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING,
+            label: None,
+            view_formats: &[],
+        };
         //let channel_layout = wgpu::BindingType::Texture {
         //    multisampled: false,
         //    sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -195,62 +197,10 @@ impl IGlobals {
         //    address_mode_w: wgpu::AddressMode::Repeat,
         //    ..Default::default()
         //};
-        //let i_channel0 = device.create_texture(&wgpu::TextureDescriptor {
-        //    label: None,
-        //    size: wgpu::Extent3d {
-        //        width,
-        //        height,
-        //        depth_or_array_layers: 1,
-        //    },
-        //    mip_level_count: 1,
-        //    sample_count: 1,
-        //    dimension: wgpu::TextureDimension::D2,
-        //    format: wgpu::TextureFormat::Rgba16Float,
-        //    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-        //    view_formats: &[],
-        //});
-        //let i_channel1 = device.create_texture(&wgpu::TextureDescriptor {
-        //    label: None,
-        //    size: wgpu::Extent3d {
-        //        width,
-        //        height,
-        //        depth_or_array_layers: 1,
-        //    },
-        //    mip_level_count: 1,
-        //    sample_count: 1,
-        //    dimension: wgpu::TextureDimension::D2,
-        //    format: wgpu::TextureFormat::Rgba16Float,
-        //    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-        //    view_formats: &[],
-        //});
-        //let i_channel2 = device.create_texture(&wgpu::TextureDescriptor {
-        //    label: None,
-        //    size: wgpu::Extent3d {
-        //        width,
-        //        height,
-        //        depth_or_array_layers: 1,
-        //    },
-        //    mip_level_count: 1,
-        //    sample_count: 1,
-        //    dimension: wgpu::TextureDimension::D2,
-        //    format: wgpu::TextureFormat::Rgba16Float,
-        //    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-        //    view_formats: &[],
-        //});
-        //let i_channel3 = device.create_texture(&wgpu::TextureDescriptor {
-        //    label: None,
-        //    size: wgpu::Extent3d {
-        //        width,
-        //        height,
-        //        depth_or_array_layers: 1,
-        //    },
-        //    mip_level_count: 1,
-        //    sample_count: 1,
-        //    dimension: wgpu::TextureDimension::D2,
-        //    format: wgpu::TextureFormat::Rgba16Float,
-        //    usage: wgpu::TextureUsages::STORAGE_BINDING | wgpu::TextureUsages::TEXTURE_BINDING,
-        //    view_formats: &[],
-        //});
+        let i_channel0 = device.create_texture(&blank);
+        let i_channel1 = device.create_texture(&blank);
+        let i_channel2 = device.create_texture(&blank);
+        let i_channel3 = device.create_texture(&blank);
         IGlobals {
             i_global_time: BufferBinding {
                 host: 0.,
@@ -315,37 +265,37 @@ impl IGlobals {
             //i_channel0: TextureBinding {
             //    view: i_channel0.create_view(&Default::default()),
             //    device: i_channel0,
-            //    layout: wgpu::BindingType::StorageTexture {
-            //        access: wgpu::StorageTextureAccess::WriteOnly,
-            //        format: wgpu::TextureFormat::Rgba16Float,
+            //    layout: wgpu::BindingType::Texture {
+            //        multisampled: false,
             //        view_dimension: wgpu::TextureViewDimension::D2,
+            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
             //    },
             //},
             //i_channel1: TextureBinding {
             //    view: i_channel1.create_view(&Default::default()),
             //    device: i_channel1,
-            //    layout: wgpu::BindingType::StorageTexture {
-            //        access: wgpu::StorageTextureAccess::WriteOnly,
-            //        format: wgpu::TextureFormat::Rgba16Float,
+            //    layout: wgpu::BindingType::Texture {
+            //        multisampled: false,
             //        view_dimension: wgpu::TextureViewDimension::D2,
+            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
             //    },
             //},
             //i_channel2: TextureBinding {
             //    view: i_channel2.create_view(&Default::default()),
             //    device: i_channel2,
-            //    layout: wgpu::BindingType::StorageTexture {
-            //        access: wgpu::StorageTextureAccess::WriteOnly,
-            //        format: wgpu::TextureFormat::Rgba16Float,
+            //    layout: wgpu::BindingType::Texture {
+            //        multisampled: false,
             //        view_dimension: wgpu::TextureViewDimension::D2,
+            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
             //    },
             //},
             //i_channel3: TextureBinding {
             //    view: i_channel3.create_view(&Default::default()),
             //    device: i_channel3,
-            //    layout: wgpu::BindingType::StorageTexture {
-            //        access: wgpu::StorageTextureAccess::WriteOnly,
-            //        format: wgpu::TextureFormat::Rgba16Float,
+            //    layout: wgpu::BindingType::Texture {
+            //        multisampled: false,
             //        view_dimension: wgpu::TextureViewDimension::D2,
+            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
             //    },
             //},
         }
@@ -408,24 +358,24 @@ pub static EXAMPLE_ELEMENTAL_RING_STR: &str = include_str!("../../examples/eleme
 
 // Fragment shader prefix.
 const PREFIX: &str = "
-    #version 440 core
+#version 440 core
 
-    layout(binding=0) uniform float     iGlobalTime;
-    layout(binding=1) uniform float     iTime;
-    layout(binding=2) uniform vec3      iResolution;
-    layout(binding=3) uniform vec4      iMouse;
-    layout(binding=4) uniform int       iFrame;
+layout(binding=0) uniform float     iGlobalTime;
+layout(binding=1) uniform float     iTime;
+layout(binding=2) uniform vec3      iResolution;
+layout(binding=3) uniform vec4      iMouse;
+layout(binding=4) uniform int       iFrame;
 
-    layout(location=0) in vec2 fragCoord;
-    layout(location=0) out vec4 fragColor;
+layout(location=0) in vec2 fragCoord;
+layout(location=0) out vec4 fragColor;
 ";
 
 // Fragment shader suffix.
 const SUFFIX: &str = "
-    void main() {
-        fragColor = vec4(1.0, 1.0, 0.0, 0.0);
-        mainImage(fragColor, fragCoord);
-    }
+void main() {
+    fragColor = vec4(1.0, 1.0, 0.0, 0.0);
+    mainImage(fragColor, fragCoord);
+}
 ";
 
 #[derive(Default)]
@@ -507,44 +457,140 @@ pub fn load_vertex_shader() -> Cow<'static, str> {
     DEFAULT_VERT_SRC_BUF.into()
 }
 
-//pub fn load_texture(
-//    id: &TextureId,
-//    texpath: &Option<String>,
-//    device: &mut wgpu::Device,
-//) -> Result<wgpu::Texture> {
-//    let default_buf = if texpath.is_some() {
-//        None
-//    } else {
-//        match *id {
-//            TextureId::Zero => Some(DEFAULT_TEXTURE0_BUF),
-//            TextureId::One => Some(DEFAULT_TEXTURE1_BUF),
-//            TextureId::Two => Some(DEFAULT_TEXTURE2_BUF),
-//            TextureId::Three => Some(DEFAULT_TEXTURE3_BUF),
-//        }
-//    };
-//    let img = if let Some(default_buf) = default_buf {
-//        image::load_from_memory(default_buf)?.flipv().to_rgba8()
-//    } else {
-//        image::open(&texpath.clone().unwrap())?.flipv().to_rgba8()
-//    };
-//
-//    let t = device.create_texture(&wgpu::TextureDescriptor {
-//        label: None,
-//        size: wgpu::Extent3d {
-//            width: img.width(),
-//            height: img.height(),
-//            depth_or_array_layers: 1,
-//        },
-//        mip_level_count: 1,
-//        sample_count: 1,
-//        dimension: wgpu::TextureDimension::D2,
-//        format: wgpu::TextureFormat::Rgba8Uint,
-//        usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-//        view_formats: &[],
-//    });
-//
-//    Ok(t)
-//}
+pub struct Texture {
+    pub texture: wgpu::Texture,
+    pub view: wgpu::TextureView,
+    pub sampler: wgpu::Sampler,
+}
+
+impl Texture {
+    pub fn from_image(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        img: &image::ImageBuffer<image::Rgba<u8>, Vec<u8>>,
+        label: Option<&str>,
+    ) -> Result<Self> {
+        let dimensions = (img.width(), img.height());
+
+        let size = wgpu::Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 1,
+        };
+        let format = wgpu::TextureFormat::Rgba8UnormSrgb;
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label,
+            size,
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+
+        queue.write_texture(
+            wgpu::ImageCopyTexture {
+                aspect: wgpu::TextureAspect::All,
+                texture: &texture,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+            },
+            &img,
+            wgpu::ImageDataLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * dimensions.0),
+                rows_per_image: Some(dimensions.1),
+            },
+            size,
+        );
+
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        Ok(Self {
+            texture,
+            view,
+            sampler,
+        })
+    }
+}
+
+pub fn load_texture(
+    id: &TextureId,
+    texpath: &Option<String>,
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    t: &mut TextureBinding,
+) -> Result<(), String> {
+    let default_buf = if texpath.is_some() {
+        None
+    } else {
+        match *id {
+            TextureId::Zero => Some(DEFAULT_TEXTURE0_BUF),
+            TextureId::One => Some(DEFAULT_TEXTURE1_BUF),
+            TextureId::Two => Some(DEFAULT_TEXTURE2_BUF),
+            TextureId::Three => Some(DEFAULT_TEXTURE3_BUF),
+        }
+    };
+
+    let img = if let Some(default_buf) = default_buf {
+        image::load_from_memory(default_buf)
+            .map_err(|e| format!("{:?}", e))?
+            .flipv()
+            .to_rgba8()
+    } else {
+        image::open(&texpath.clone().unwrap())
+            .map_err(|e| format!("{:?}", e))?
+            .flipv()
+            .to_rgba8()
+    };
+
+    let tex =
+        Texture::from_image(device, queue, &img, None).map_err(|e| format!("{:?}", e))?;
+
+    t.set_texture(tex.texture);
+
+    //let t = device.create_texture(&wgpu::TextureDescriptor {
+    //    label: None,
+    //    size: wgpu::Extent3d {
+    //        width: img.width(),
+    //        height: img.height(),
+    //        depth_or_array_layers: 1,
+    //    },
+    //    mip_level_count: 1,
+    //    sample_count: 1,
+    //    dimension: wgpu::TextureDimension::D2,
+    //    format: wgpu::TextureFormat::Rgba8Uint,
+    //    usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+    //    view_formats: &[],
+    //});
+
+    //queue.write_texture(
+    //    t.texture().as_image_copy(),
+    //    img.as_raw(),
+    //    wgpu::ImageDataLayout {
+    //        offset: 0,
+    //        bytes_per_row: Some(4 * img.width()),
+    //        rows_per_image: Some(img.height()),
+    //    },
+    //    wgpu::Extent3d {
+    //        width: img.width(),
+    //        height: img.height(),
+    //        depth_or_array_layers: 1,
+    //    },
+    //);
+
+    Ok(())
+}
 
 impl OutputSurface {
     pub(crate) async fn new(
@@ -669,9 +715,6 @@ impl OutputSurface {
             },
         });
 
-        let globals = IGlobals::new(&av, &device, width, height);
-        let globals_vec = globals.to_vec();
-
         let frag = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: None,
             source: wgpu::ShaderSource::Glsl {
@@ -680,6 +723,44 @@ impl OutputSurface {
                 defines: Default::default(),
             },
         });
+
+        let mut globals = IGlobals::new(&av, &device, width, height);
+
+        //// Load textures.
+        //load_texture(
+        //    &TextureId::Zero,
+        //    &av.texture0path,
+        //    &device,
+        //    &queue,
+        //    &mut globals.i_channel0,
+        //)?;
+        //load_texture(
+        //    &TextureId::One,
+        //    &av.texture1path,
+        //    &device,
+        //    &queue,
+        //    &mut globals.i_channel1,
+        //)?;
+        //load_texture(
+        //    &TextureId::Two,
+        //    &av.texture2path,
+        //    &device,
+        //    &queue,
+        //    &mut globals.i_channel2,
+        //)?;
+        //load_texture(
+        //    &TextureId::Three,
+        //    &av.texture3path,
+        //    &device,
+        //    &queue,
+        //    &mut globals.i_channel3,
+        //)?;
+
+        let needs_mipmap = |mode: wgpu::FilterMode| {
+            mode != wgpu::FilterMode::Nearest && mode != wgpu::FilterMode::Linear
+        };
+
+        let globals_vec = globals.to_vec();
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -813,6 +894,20 @@ impl OutputSurface {
         //    ),
         //};
 
+        // Generate mipmaps if needed.
+        //if needs_mipmap(av.filter0) {
+        //    encoder.generate_mipmap(&texture0)
+        //};
+        //if needs_mipmap(av.filter1) {
+        //    encoder.generate_mipmap(&texture1)
+        //};
+        //if needs_mipmap(av.filter2) {
+        //    encoder.generate_mipmap(&texture2)
+        //};
+        //if needs_mipmap(av.filter3) {
+        //    encoder.generate_mipmap(&texture3)
+        //};
+
         println!("well it compiled?");
 
         Ok(Self {
@@ -842,6 +937,7 @@ impl OutputSurface {
 
     pub fn set_fft(&mut self, med_fv: f32, max_fv: f32) {
         self.globals.i_mouse.host[0] = med_fv;
+        self.start_time -= Duration::from_secs_f32(med_fv / 10.);
         //let mut fs = self.original_uniforms.to_vec();
         //self.exp = med_fv.max(0.1).max(self.exp) * 0.75;
         //for u in fs.iter_mut() {
