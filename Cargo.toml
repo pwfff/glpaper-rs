@@ -9,7 +9,7 @@ edition = "2021"
 env_logger = "0.10.0"
 sctk = { package = "smithay-client-toolkit", git = "https://github.com/Smithay/client-toolkit" }
 raw-window-handle = "0.5.2"
-wgpu = "0.16.0"
+wgpu = { version = "0.17.0", features = ["glsl"] }
 pollster = "0.2.5"
 wayland-backend = { version = "0.1.0", features = ["client_system"] }
 wayland-client = "0.30.2"
@@ -18,10 +18,12 @@ wayland-protocols-wlr = { version = "0.1.0", features = ["client"] }
 wayland-csd-frame = { version = "0.2.2", default-features = false, features = ["wayland-backend_0_1"] }
 bytemuck = { version = "1.12", features = ["derive"] }
 anyhow = "1.0.75"
-wgputoy = { path = "../wgpu-compute-toy", default-features = false }
+#wgputoy = { path = "../wgpu-compute-toy", default-features = false }
 tokio = { version = "1.32.0", features = ["full"] }
 futures = "0.3.28"
 cpal = "0.15.2"
 spectrum-analyzer = "1.4.0"
 maplit = "1.0.2"
+image = "0.24.7"
+naga = "0.13.0"
 
