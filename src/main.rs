@@ -138,12 +138,13 @@ fn main() -> Result<()> {
                         let mut mel = d.to_mel_map();
                         let highs = mel.split_off(&100);
                         let max_l = mel.values().fold(0., |a: f32, x| a.max(*x));
+                        let max_h = highs.values().fold(0., |a: f32, x| a.max(*x));
 
                         let (max_f, max_fv) = d.max();
                         let hmm = max_f / d.max_fr();
                         let med_fv = d.median();
                         let avg_fv = d.average();
-                        bg.set_fft(max_l, max_fv.val());
+                        bg.set_fft(max_l, max_h);
                     }
                 })?;
 

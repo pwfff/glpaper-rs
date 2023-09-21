@@ -597,21 +597,18 @@ impl OutputSurface {
         };
         let vert_src_buf = load_vertex_shader();
         let frag_src_buf = if av.getid.is_some() {
-            let (_, shadercode) = download::download(&mut av)
-                .await
-                .map_err(|e| format!("{}", e))?;
-            format_shader_src(&shadercode)
+            if av.getid.clone().unwrap().contains(".") {
+                av.shaderpath = av.getid.clone();
+                load_fragment_shader(&av)?
+            } else {
+                let (_, shadercode) = download::download(&mut av)
+                    .await
+                    .map_err(|e| format!("{}", e))?;
+                format_shader_src(&shadercode)
+            }
         } else {
             load_fragment_shader(&av)?
         };
-
-        let shader_name = av
-            .getid
-            .as_ref()
-            .or(av.shaderpath.as_ref())
-            .or(av.examplename.as_ref());
-        let shader_title = shader_name.map(|name| format!("{} - shadertoy-rs", name));
-        let default_title = "shadertoy-rs".to_string();
 
         println!("creating output surface");
 
@@ -901,7 +898,8 @@ impl OutputSurface {
     //}
 
     pub fn set_fft(&mut self, med_fv: f32, max_fv: f32) {
-        self.globals.i_mouse.host[0] = med_fv;
+        self.globals.i_mouse.host[0] = max_fv;
+        self.globals.i_mouse.host[1] = med_fv;
         self.start_time -= Duration::from_secs_f32(med_fv / 10.);
         //let mut fs = self.original_uniforms.to_vec();
         //self.exp = med_fv.max(0.1).max(self.exp) * 0.75;
