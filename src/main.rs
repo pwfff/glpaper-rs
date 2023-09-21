@@ -103,7 +103,7 @@ fn main() -> Result<()> {
                             // (windowed) samples
                             &hann_window,
                             // sampling rate
-                            44100,
+                            conf.sample_rate.0,
                             // optional frequency limit: e.g. only interested in frequencies 50 <= f <= 150?
                             FrequencyLimit::All,
                             // optional scale

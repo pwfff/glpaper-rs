@@ -898,8 +898,8 @@ impl OutputSurface {
     //}
 
     pub fn set_fft(&mut self, med_fv: f32, max_fv: f32) {
-        self.globals.i_mouse.host[0] = max_fv;
-        self.globals.i_mouse.host[1] = med_fv;
+        self.globals.i_mouse.host[0] = max_fv.max(self.globals.i_mouse.host[0]);
+        self.globals.i_mouse.host[1] = med_fv.max(self.globals.i_mouse.host[1]);
         self.start_time -= Duration::from_secs_f32(med_fv / 10.);
         //let mut fs = self.original_uniforms.to_vec();
         //self.exp = med_fv.max(0.1).max(self.exp) * 0.75;
@@ -931,8 +931,6 @@ impl OutputSurface {
         if self.submitted_frame.is_some() {
             return Ok(());
         }
-
-        // TODO: actual like, uniforms support
         let time = self.start_time.elapsed().as_secs_f32();
         self.globals.i_time.host = time;
         self.globals.i_global_time.host = time;
@@ -966,6 +964,9 @@ impl OutputSurface {
         self.submitted_frame = Some((frame, i));
 
         self.device.poll(MaintainBase::Poll);
+
+        self.globals.i_mouse.host[0] *= 0.8;
+        self.globals.i_mouse.host[1] *= 0.8;
 
         Ok(())
     }
