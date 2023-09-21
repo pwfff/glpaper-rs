@@ -20,17 +20,17 @@ use wgpu::{Maintain, MaintainBase, SubmissionIndex, SurfaceTexture};
 
 // TODO: add these
 // All unsupported uniforms. Attempting to use any of these in a shader will result in an error.
-pub static UNSUPPORTED_UNIFORMS: [&str; 9] = [
+pub static UNSUPPORTED_UNIFORMS: [&str; 5] = [
     "iTimeDelta",
     "iChannelTime",
     "iChannelResolution",
     "iDate",
     "iSampleRate",
     // broken because https://github.com/gfx-rs/naga/issues/1012
-    "iChannel0",
-    "iChannel1",
-    "iChannel2",
-    "iChannel3",
+    //"iChannel0",
+    //"iChannel1",
+    //"iChannel2",
+    //"iChannel3",
 ];
 
 pub struct OutputSurface {
@@ -148,19 +148,30 @@ struct IGlobals {
     i_resolution: BufferBinding<[f32; 3]>,
     i_mouse: BufferBinding<[f32; 4]>,
     i_frame: BufferBinding<i32>,
-    //i_channel0: TextureBinding,
-    //i_channel1: TextureBinding,
-    //i_channel2: TextureBinding,
-    //i_channel3: TextureBinding,
+    channels: [Texture; 4],
 }
 
 impl IGlobals {
-    pub fn new(av: &ArgValues, device: &wgpu::Device, width: u32, height: u32) -> Self {
+    pub fn new(
+        av: &ArgValues,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        width: u32,
+        height: u32,
+    ) -> Self {
         let uniform_buffer = wgpu::BindingType::Buffer {
             ty: wgpu::BufferBindingType::Uniform,
             has_dynamic_offset: false,
             min_binding_size: None,
         };
+
+        let channels = [
+            load_texture(DEFAULT_TEXTURE0_BUF, &av.texture0path, device, queue).unwrap(),
+            load_texture(DEFAULT_TEXTURE1_BUF, &av.texture1path, device, queue).unwrap(),
+            load_texture(DEFAULT_TEXTURE2_BUF, &av.texture2path, device, queue).unwrap(),
+            load_texture(DEFAULT_TEXTURE3_BUF, &av.texture3path, device, queue).unwrap(),
+        ];
+
         //let storage_buffer = wgpu::BindingType::Buffer {
         //    ty: wgpu::BufferBindingType::Storage { read_only: false },
         //    has_dynamic_offset: false,
@@ -172,20 +183,20 @@ impl IGlobals {
         //} else {
         //    "rgba16float"
         //};
-        let blank = wgpu::TextureDescriptor {
-            size: wgpu::Extent3d {
-                width: 1,
-                height: 1,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: wgpu::TextureFormat::Rgba8UnormSrgb,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING,
-            label: None,
-            view_formats: &[],
-        };
+        //let blank = wgpu::TextureDescriptor {
+        //    size: wgpu::Extent3d {
+        //        width: 1,
+        //        height: 1,
+        //        depth_or_array_layers: 1,
+        //    },
+        //    mip_level_count: 1,
+        //    sample_count: 1,
+        //    dimension: wgpu::TextureDimension::D2,
+        //    format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        //    usage: wgpu::TextureUsages::TEXTURE_BINDING,
+        //    label: None,
+        //    view_formats: &[],
+        //};
         //let channel_layout = wgpu::BindingType::Texture {
         //    multisampled: false,
         //    sample_type: wgpu::TextureSampleType::Float { filterable: true },
@@ -197,10 +208,6 @@ impl IGlobals {
         //    address_mode_w: wgpu::AddressMode::Repeat,
         //    ..Default::default()
         //};
-        let i_channel0 = device.create_texture(&blank);
-        let i_channel1 = device.create_texture(&blank);
-        let i_channel2 = device.create_texture(&blank);
-        let i_channel3 = device.create_texture(&blank);
         IGlobals {
             i_global_time: BufferBinding {
                 host: 0.,
@@ -262,42 +269,7 @@ impl IGlobals {
                 layout: uniform_buffer,
                 bind: Box::new(wgpu::Buffer::as_entire_buffer_binding),
             },
-            //i_channel0: TextureBinding {
-            //    view: i_channel0.create_view(&Default::default()),
-            //    device: i_channel0,
-            //    layout: wgpu::BindingType::Texture {
-            //        multisampled: false,
-            //        view_dimension: wgpu::TextureViewDimension::D2,
-            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            //    },
-            //},
-            //i_channel1: TextureBinding {
-            //    view: i_channel1.create_view(&Default::default()),
-            //    device: i_channel1,
-            //    layout: wgpu::BindingType::Texture {
-            //        multisampled: false,
-            //        view_dimension: wgpu::TextureViewDimension::D2,
-            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            //    },
-            //},
-            //i_channel2: TextureBinding {
-            //    view: i_channel2.create_view(&Default::default()),
-            //    device: i_channel2,
-            //    layout: wgpu::BindingType::Texture {
-            //        multisampled: false,
-            //        view_dimension: wgpu::TextureViewDimension::D2,
-            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            //    },
-            //},
-            //i_channel3: TextureBinding {
-            //    view: i_channel3.create_view(&Default::default()),
-            //    device: i_channel3,
-            //    layout: wgpu::BindingType::Texture {
-            //        multisampled: false,
-            //        view_dimension: wgpu::TextureViewDimension::D2,
-            //        sample_type: wgpu::TextureSampleType::Float { filterable: true },
-            //    },
-            //},
+            channels,
         }
     }
 
@@ -308,10 +280,14 @@ impl IGlobals {
             &self.i_resolution,
             &self.i_mouse,
             &self.i_frame,
-            //&self.i_channel0,
-            //&self.i_channel1,
-            //&self.i_channel2,
-            //&self.i_channel3,
+            &self.channels[0].texture,
+            &self.channels[0].sampler,
+            &self.channels[1].texture,
+            &self.channels[1].sampler,
+            &self.channels[2].texture,
+            &self.channels[2].sampler,
+            &self.channels[3].texture,
+            &self.channels[3].sampler,
         ]
     }
 
@@ -335,13 +311,6 @@ const SCREEN_INDICES: [u16; 6] = [0, 1, 2, 0, 2, 3];
 
 const CLEAR_COLOR: [f32; 4] = [1.0; 4];
 
-pub enum TextureId {
-    Zero,
-    One,
-    Two,
-    Three,
-}
-
 // Default shaders.
 pub static DEFAULT_VERT_SRC_BUF: &str = include_str!("../../shaders/default.vert");
 pub static DEFAULT_FRAG_SRC_STR: &str = include_str!("../../examples/seascape.frag");
@@ -360,14 +329,28 @@ pub static EXAMPLE_ELEMENTAL_RING_STR: &str = include_str!("../../examples/eleme
 const PREFIX: &str = "
 #version 440 core
 
-layout(binding=0) uniform float     iGlobalTime;
-layout(binding=1) uniform float     iTime;
-layout(binding=2) uniform vec3      iResolution;
-layout(binding=3) uniform vec4      iMouse;
-layout(binding=4) uniform int       iFrame;
+layout(binding=0) uniform float      iGlobalTime;
+layout(binding=1) uniform float      iTime;
+layout(binding=2) uniform vec3       iResolution;
+layout(binding=3) uniform vec4       iMouse;
+layout(binding=4) uniform int        iFrame;
+
+layout(binding=5) uniform texture2D  iChannel0_tex;
+layout(binding=6) uniform sampler    iChannel0_sam;
+layout(binding=7) uniform texture2D  iChannel1_tex;
+layout(binding=8) uniform sampler    iChannel1_sam;
+layout(binding=9) uniform texture2D  iChannel2_tex;
+layout(binding=10) uniform sampler   iChannel2_sam;
+layout(binding=11) uniform texture2D iChannel3_tex;
+layout(binding=12) uniform sampler   iChannel3_sam;
 
 layout(location=0) in vec2 fragCoord;
 layout(location=0) out vec4 fragColor;
+
+#define iChannel0  sampler2D(iChannel0_tex, iChannel0_sam)
+#define iChannel1  sampler2D(iChannel1_tex, iChannel1_sam)
+#define iChannel2  sampler2D(iChannel2_tex, iChannel2_sam)
+#define iChannel3  sampler2D(iChannel3_tex, iChannel3_sam)
 ";
 
 // Fragment shader suffix.
@@ -430,9 +413,9 @@ pub fn load_fragment_shader(av: &ArgValues) -> Result<String, String> {
                 let mut frag_src_str = String::new();
 
                 File::open(&Path::new(&shaderpath))
-                    .or_else(|err| Err(format!("could not open {}", shaderpath)))?
+                    .or_else(|err| Err(format!("could not open {}: {:?}", shaderpath, err)))?
                     .read_to_string(&mut frag_src_str)
-                    .or_else(|err| Err(format!("could not read {}", shaderpath)))?;
+                    .or_else(|err| Err(format!("could not read {}: {:?}", shaderpath, err)))?;
 
                 frag_src_str
             }
@@ -458,12 +441,21 @@ pub fn load_vertex_shader() -> Cow<'static, str> {
 }
 
 pub struct Texture {
-    pub texture: wgpu::Texture,
-    pub view: wgpu::TextureView,
-    pub sampler: wgpu::Sampler,
+    texture: TextureBinding,
+    sampler: SamplerBinding,
 }
 
 impl Texture {
+    pub fn from_bytes(
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        img: &[u8],
+        label: Option<&str>,
+    ) -> Result<Self> {
+        let img = image::load_from_memory(img)?;
+        Self::from_image(device, queue, &img.to_rgba8(), label)
+    }
+
     pub fn from_image(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -517,47 +509,48 @@ impl Texture {
         });
 
         Ok(Self {
-            texture,
-            view,
-            sampler,
+            texture: TextureBinding {
+                view,
+                device: texture,
+                layout: wgpu::BindingType::Texture {
+                    multisampled: false,
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                },
+            },
+            sampler: SamplerBinding {
+                bind: sampler,
+                layout: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            },
         })
     }
 }
 
 pub fn load_texture(
-    id: &TextureId,
+    default_buf: &[u8],
     texpath: &Option<String>,
     device: &wgpu::Device,
     queue: &wgpu::Queue,
-    t: &mut TextureBinding,
-) -> Result<(), String> {
-    let default_buf = if texpath.is_some() {
-        None
+) -> Result<Texture, String> {
+    let img = if let Some(path) = texpath {
+        image::open(&path.clone())
+            .map_err(|e| format!("{:?}", e))?
+            .flipv()
+            .to_rgba8()
     } else {
-        match *id {
-            TextureId::Zero => Some(DEFAULT_TEXTURE0_BUF),
-            TextureId::One => Some(DEFAULT_TEXTURE1_BUF),
-            TextureId::Two => Some(DEFAULT_TEXTURE2_BUF),
-            TextureId::Three => Some(DEFAULT_TEXTURE3_BUF),
-        }
-    };
-
-    let img = if let Some(default_buf) = default_buf {
         image::load_from_memory(default_buf)
             .map_err(|e| format!("{:?}", e))?
             .flipv()
             .to_rgba8()
-    } else {
-        image::open(&texpath.clone().unwrap())
-            .map_err(|e| format!("{:?}", e))?
-            .flipv()
-            .to_rgba8()
     };
 
-    let tex =
-        Texture::from_image(device, queue, &img, None).map_err(|e| format!("{:?}", e))?;
+    println!("tex from image");
 
-    t.set_texture(tex.texture);
+    let t = Texture::from_image(device, queue, &img, None).map_err(|e| format!("{:?}", e));
+
+    println!("hmmm");
+
+    t
 
     //let t = device.create_texture(&wgpu::TextureDescriptor {
     //    label: None,
@@ -588,8 +581,6 @@ pub fn load_texture(
     //        depth_or_array_layers: 1,
     //    },
     //);
-
-    Ok(())
 }
 
 impl OutputSurface {
@@ -600,17 +591,18 @@ impl OutputSurface {
         height: u32,
         shader_id: Option<String>,
     ) -> Result<Self, String> {
-        let av = ArgValues {
+        let mut av = ArgValues {
             getid: shader_id,
             ..Default::default()
         };
         let vert_src_buf = load_vertex_shader();
-        let frag_src_buf = match av.getid {
-            Some(ref id) => {
-                let (_, shadercode) = download::download(id).map_err(|e| format!("{}", e))?;
-                format_shader_src(&shadercode)
-            }
-            None => load_fragment_shader(&av)?,
+        let frag_src_buf = if av.getid.is_some() {
+            let (_, shadercode) = download::download(&mut av)
+                .await
+                .map_err(|e| format!("{}", e))?;
+            format_shader_src(&shadercode)
+        } else {
+            load_fragment_shader(&av)?
         };
 
         let shader_name = av
@@ -724,43 +716,12 @@ impl OutputSurface {
             },
         });
 
-        let mut globals = IGlobals::new(&av, &device, width, height);
-
-        //// Load textures.
-        //load_texture(
-        //    &TextureId::Zero,
-        //    &av.texture0path,
-        //    &device,
-        //    &queue,
-        //    &mut globals.i_channel0,
-        //)?;
-        //load_texture(
-        //    &TextureId::One,
-        //    &av.texture1path,
-        //    &device,
-        //    &queue,
-        //    &mut globals.i_channel1,
-        //)?;
-        //load_texture(
-        //    &TextureId::Two,
-        //    &av.texture2path,
-        //    &device,
-        //    &queue,
-        //    &mut globals.i_channel2,
-        //)?;
-        //load_texture(
-        //    &TextureId::Three,
-        //    &av.texture3path,
-        //    &device,
-        //    &queue,
-        //    &mut globals.i_channel3,
-        //)?;
+        let globals = IGlobals::new(&av, &device, &queue, width, height);
+        let globals_vec = globals.to_vec();
 
         let needs_mipmap = |mode: wgpu::FilterMode| {
             mode != wgpu::FilterMode::Nearest && mode != wgpu::FilterMode::Linear
         };
-
-        let globals_vec = globals.to_vec();
 
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
@@ -799,6 +760,8 @@ impl OutputSurface {
             usage: wgpu::BufferUsages::INDEX,
         });
         let num_indices = SCREEN_INDICES.len() as u32;
+
+        println!("creatin pipeline");
 
         //let mut encoder = device.create_command_encoder(&Default::default());
         let pipe = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -840,6 +803,8 @@ impl OutputSurface {
             multisample: wgpu::MultisampleState::default(),
             multiview: None,
         });
+
+        println!("created pipeline");
 
         //let (vertex_buffer, slice) =
         //    factory.create_vertex_buffer_with_slice(&SCREEN, &SCREEN_INDICES[..]);
