@@ -97,7 +97,7 @@ fn main() -> Result<()> {
                 .build_input_stream(
                     &conf,
                     move |d: &[f32], f| {
-                        let hann_window = hann_window(&d[0..1024]);
+                        let hann_window = hann_window(&d[0..(d.len()>>1).next_power_of_two()]);
                         // calc spectrum
                         let spectrum_hann_window = samples_fft_to_spectrum(
                             // (windowed) samples
@@ -127,8 +127,8 @@ fn main() -> Result<()> {
 
             loop {
                 // dispatch. 5000ms is random, does it matter?
-                event_loop.run(Duration::from_millis(50), &mut bg, |bg| {
-                    if let Ok(mut d) = rx.try_recv() {
+                event_loop.run(Duration::from_millis(1), &mut bg, |bg| {
+                    if let Ok(d) = rx.try_recv() {
                         //let mut buf = vec![Default::default(); d.data().len() as usize];
                         //d.apply_scaling_fn(&scaling::scale_to_zero_to_one, &mut buf).unwrap();
                         //dbg!(d.range());
