@@ -898,9 +898,9 @@ impl OutputSurface {
     //}
 
     pub fn set_fft(&mut self, med_fv: f32, max_fv: f32) {
-        self.globals.i_mouse.host[0] = max_fv.max(self.globals.i_mouse.host[0]);
-        self.globals.i_mouse.host[1] = med_fv.max(self.globals.i_mouse.host[1]);
-        self.start_time -= Duration::from_secs_f32(med_fv / 10.);
+        self.globals.i_mouse.host[0] = max_fv.max(self.globals.i_mouse.host[0] * 0.9).min(1.);
+        self.globals.i_mouse.host[1] = med_fv.max(self.globals.i_mouse.host[1] * 0.9);
+        self.start_time -= Duration::from_secs_f32(med_fv / 20.);
         //let mut fs = self.original_uniforms.to_vec();
         //self.exp = med_fv.max(0.1).max(self.exp) * 0.75;
         //for u in fs.iter_mut() {
