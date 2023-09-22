@@ -136,7 +136,7 @@ fn main() -> Result<()> {
                         //    return
                         //}
                         let mut mel = d.to_mel_map();
-                        let highs = mel.split_off(&100);
+                        let highs = mel.split_off(&75).split_off(&1250);
                         let max_l = mel.values().fold(0., |a: f32, x| a.max(*x));
                         let max_h = highs.values().fold(0., |a: f32, x| a.max(*x));
 

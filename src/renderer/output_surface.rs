@@ -987,6 +987,8 @@ impl OutputSurface {
         }
         layer.commit();
 
+        self.draw()?;
+
         Ok(())
     }
 }
