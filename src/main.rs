@@ -24,11 +24,10 @@ mod renderer;
 const FPS: f32 = 60.;
 const MSPF: f32 = 1000. / FPS;
 
-fn main() -> Result<()> {
+fn main() -> Result<(), anyhow::Error> {
     env_logger::init();
 
-    let requested_display = std::env::args().nth(1).expect("no display given");
-    let shader_id = std::env::args().nth(2);
+    let shader_id = std::env::args().nth(1);
 
     // have to init this before tokio or tokio will i guess just eat all our signals forever
     let signal_source = Signals::new(&[Signal::SIGUSR2])?;
@@ -50,19 +49,10 @@ fn main() -> Result<()> {
 
             event_queue.roundtrip(&mut bg).unwrap();
 
-            match bg.output_state().outputs().find_map(|output| {
+            for output in bg.output_state().outputs() {
                 let output_info = bg.output_state().info(&output).unwrap();
-                if output_info.clone().name.unwrap() != requested_display {
-                    None
-                } else {
-                    Some(output)
-                }
-            }) {
-                Some(output) => {
-                    bg.create_layer(&qh, output);
-                }
-                None => return Err(anyhow!("couldn't find display")),
-            };
+                bg.configure_output(&qh, output, output_info);
+            }
 
             // round trip to get layer we just added configured, rendering will start
             event_queue.roundtrip(&mut bg).unwrap();
@@ -97,7 +87,7 @@ fn main() -> Result<()> {
                 .build_input_stream(
                     &conf,
                     move |d: &[f32], f| {
-                        let hann_window = hann_window(&d[0..(d.len()>>1).next_power_of_two()]);
+                        let hann_window = hann_window(&d[0..(d.len() >> 1).next_power_of_two()]);
                         // calc spectrum
                         let spectrum_hann_window = samples_fft_to_spectrum(
                             // (windowed) samples
@@ -155,7 +145,7 @@ fn main() -> Result<()> {
                 }
             }
 
-            Ok(())
+            Ok::<(), anyhow::Error>(())
         })?;
 
     Ok(())
