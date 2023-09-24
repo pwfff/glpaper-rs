@@ -18,27 +18,9 @@ use spectrum_analyzer::{
 };
 use wayland_client::{globals::registry_queue_init, Connection, WaylandSource};
 
-use smithay::{
-    backend::{
-        renderer::{
-            element::{texture::TextureRenderElement, Element, RenderElement},
-            gles::GlesTexture,
-            glow::GlowRenderer,
-            Frame, Renderer,
-        },
-        winit,
-    },
-    input::{
-        keyboard::{FilterResult, XkbConfig},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent},
-        SeatHandler, SeatState,
-    },
-    utils::{Rectangle, Transform, SERIAL_COUNTER},
-};
-use smithay_egui::EguiState;
-
 mod handlers;
 mod renderer;
+mod ui;
 
 const FPS: f32 = 60.;
 const MSPF: f32 = 1000. / FPS;
@@ -52,21 +34,8 @@ fn main() -> Result<(), anyhow::Error> {
     let signal_source = Signals::new(&[Signal::SIGUSR2])?;
 
     // create a winit-backend
-    let (mut backend, mut input) =
-        winit::init::<GlowRenderer>().map_err(|_| anyhow::anyhow!("Winit failed to start"))?;
-    // create an `EguiState`. Usually this would be part of your global smithay state
-    let egui = EguiState::new(Rectangle::from_loc_and_size(
-        (0, 0),
-        backend.window_size().physical_size.to_logical(1),
-    ));
-
-    // you might also need additional structs to store your ui-state, like the demo_lib does
-    let mut demo_ui = egui_demo_lib::DemoWindows::default();
-
-    let mut seat_state = SeatState::new();
-    let mut seat = seat_state.new_seat("seat-0");
-    let keyboard = seat.add_keyboard(XkbConfig::default(), 200, 25)?;
-    let pointer = seat.add_pointer();
+    let (ui_tx, ui_rx) = channel::channel();
+    let mut demo_ui = ui::Picker::new(ui_rx)?;
 
     //tokio::runtime::Builder::new_multi_thread()
     //    .enable_all()
@@ -81,8 +50,7 @@ fn main() -> Result<(), anyhow::Error> {
     let qh = event_queue.handle();
 
     // init state, do roundtrip to get display info
-    let mut bg = BackgroundLayer::new(&globals, shader_id, &qh, egui.clone(), seat_state)?;
-    keyboard.set_focus(&mut bg, Some(egui.clone()), SERIAL_COUNTER.next_serial());
+    let mut bg = BackgroundLayer::new(&globals, shader_id, &qh)?;
 
     event_queue.roundtrip(&mut bg).unwrap();
 
@@ -109,7 +77,9 @@ fn main() -> Result<(), anyhow::Error> {
         .unwrap();
 
     loop_handle.insert_source(signal_source, |event, _, bg| {
-        bg.reset().unwrap();
+        println!("show, i guess");
+        let _ = ui_tx.send(true);
+        //demo_ui.show().unwrap();
     })?;
 
     // add wayland events into the loop
@@ -179,50 +149,7 @@ fn main() -> Result<(), anyhow::Error> {
             bg.set_fft(max_l, max_h);
         }
 
-        match input.dispatch_new_events(|event| {
-            bg.handle_winit(event, &keyboard, &pointer).unwrap();
-        }) {
-            Ok(()) => {
-                let size = backend.window_size().physical_size;
-                // Here we compute the rendered egui frame
-                let egui_frame: TextureRenderElement<GlesTexture> = egui
-                    .render(
-                        |ctx| demo_ui.ui(ctx),
-                        backend.renderer(),
-                        // Just render it over the whole window, but you may limit the area
-                        Rectangle::from_loc_and_size((0, 0), size.to_logical(1)),
-                        // we also completely ignore the scale *everywhere* in this example, but egui is HiDPI-ready
-                        1.0,
-                        1.0,
-                    )
-                    .expect("Failed to render egui");
-
-                // Lastly put the rendered frame on the screen
-                backend.bind().unwrap();
-                let renderer = backend.renderer();
-                {
-                    let mut frame = renderer.render(size, Transform::Flipped180).unwrap();
-                    frame
-                        .clear(
-                            [1.0, 1.0, 1.0, 1.0],
-                            &[Rectangle::from_loc_and_size((0, 0), size)],
-                        )
-                        .unwrap();
-                    RenderElement::<GlowRenderer>::draw(
-                        &egui_frame,
-                        &mut frame,
-                        egui_frame.src(),
-                        egui_frame.geometry(1.0.into()),
-                        &[Rectangle::from_loc_and_size((0, 0), size)],
-                    )
-                    .unwrap();
-                }
-                backend.submit(None).unwrap();
-            }
-            Err(winit::WinitError::WindowClosed) => {
-                backend.window().set_visible(false);
-            },
-        };
+        demo_ui.handle_winit().unwrap();
     })?;
 
     //        Ok::<(), anyhow::Error>(())

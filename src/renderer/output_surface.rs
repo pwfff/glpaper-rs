@@ -7,7 +7,6 @@ use std::time::{Duration, Instant};
 
 use super::download;
 use anyhow::Result;
-use image::ImageBuffer;
 use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
     WaylandDisplayHandle, WaylandWindowHandle,

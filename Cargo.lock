@@ -1040,6 +1040,7 @@ dependencies = [
  "anyhow",
  "bytemuck",
  "cpal",
+ "egui",
  "egui_demo_lib",
  "env_logger",
  "futures",

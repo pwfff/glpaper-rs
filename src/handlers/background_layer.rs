@@ -1,15 +1,5 @@
 use anyhow::Result;
 use pollster::block_on;
-use smithay::{
-    backend::winit::WinitEvent,
-    input::{
-        keyboard::{FilterResult, KeyboardHandle},
-        pointer::{AxisFrame, ButtonEvent, MotionEvent, PointerHandle},
-        SeatHandler, SeatState,
-    },
-    utils::SERIAL_COUNTER,
-};
-use smithay_egui::EguiState;
 use std::sync::Arc;
 use wayland_backend::client::ObjectId;
 
@@ -64,7 +54,6 @@ impl Backgrounds for Vec<Background> {
 
 pub struct BackgroundLayer {
     registry_state: RegistryState,
-    seat_state: SeatState<Self>,
     output_state: OutputState,
     compositor_state: Arc<CompositorState>,
     layer_shell: Arc<LayerShell>,
@@ -73,7 +62,6 @@ pub struct BackgroundLayer {
 
     pub exit: bool,
     shader_id: Option<String>,
-    egui: EguiState,
 }
 
 impl BackgroundLayer {
@@ -81,17 +69,13 @@ impl BackgroundLayer {
         globals: &GlobalList,
         shader_id: Option<String>,
         qh: &QueueHandle<Self>,
-        egui: EguiState,
-        seat_state: SeatState<Self>,
     ) -> Result<Self> {
         Ok(BackgroundLayer {
             registry_state: RegistryState::new(&globals),
-            seat_state,
             output_state: OutputState::new(&globals, &qh),
             compositor_state: CompositorState::bind(&globals, &qh)?.into(),
             layer_shell: LayerShell::bind(&globals, &qh)?.into(),
             shader_id,
-            egui,
 
             backgrounds: vec![],
 
@@ -163,105 +147,6 @@ impl BackgroundLayer {
                 os.set_fft(max_f, max_fv);
             }
         }
-    }
-
-    pub fn handle_winit(
-        &mut self,
-        event: WinitEvent,
-        keyboard: &KeyboardHandle<Self>,
-        pointer: &PointerHandle<Self>,
-    ) -> Result<()> {
-        use smithay::backend::{
-            input::{
-                AbsolutePositionEvent, Axis, AxisSource, Event, InputEvent, KeyboardKeyEvent,
-                PointerAxisEvent, PointerButtonEvent,
-            },
-            winit::WinitEvent::*,
-        };
-        match event {
-            // Handle input events by passing them into smithay-egui
-            Input(event) => match event {
-                // egui tracks pointers
-                InputEvent::DeviceAdded { device } => self.egui.handle_device_added(&device),
-                InputEvent::DeviceRemoved { device } => self.egui.handle_device_removed(&device),
-                // we rely on the filter-closure of the keyboard.input call to get the values we need for egui.
-                //
-                // NOTE: usually you would need to check `EguiState::wants_keyboard_input` or track focus of egui
-                //       using the methods provided in `EguiState.context().memory()` separately to figure out
-                //       if an event should be forwarded to egui or not.
-                InputEvent::Keyboard { event } => keyboard
-                    .input(
-                        self,
-                        event.key_code(),
-                        event.state(),
-                        SERIAL_COUNTER.next_serial(),
-                        event.time_msec(),
-                        |_data, _modifiers, _handle| FilterResult::Forward,
-                    )
-                    .unwrap_or(()),
-                // Winit only produces `PointerMotionAbsolute` events, but a real compositor needs to handle this for `PointerMotion` events as well.
-                // Meaning: you need to compute the absolute position and pass that to egui.
-                InputEvent::PointerMotionAbsolute { event } => {
-                    let pos = event.position();
-                    pointer.motion(
-                        self,
-                        Some((self.egui.clone(), (0, 0).into())),
-                        &MotionEvent {
-                            location: (pos.x, pos.y).into(),
-                            serial: SERIAL_COUNTER.next_serial(),
-                            time: event.time_msec(),
-                        },
-                    );
-                }
-                // NOTE: you should check with `EguiState::wwants_pointer`, if the pointer is above any egui element before forwarding it.
-                // Otherwise forward it to clients as usual.
-                InputEvent::PointerButton { event } => pointer.button(
-                    self,
-                    &ButtonEvent {
-                        button: event.button_code(),
-                        state: event.state().into(),
-                        serial: SERIAL_COUNTER.next_serial(),
-                        time: event.time_msec(),
-                    },
-                ),
-                // NOTE: you should check with `EguiState::wwants_pointer`, if the pointer is above any egui element before forwarding it.
-                // Otherwise forward it to clients as usual.
-                InputEvent::PointerAxis { event } => {
-                    let horizontal_amount = event.amount(Axis::Horizontal).unwrap_or_else(|| {
-                        event.amount_discrete(Axis::Horizontal).unwrap_or(0.0) * 3.0
-                    });
-                    let vertical_amount = event.amount(Axis::Vertical).unwrap_or_else(|| {
-                        event.amount_discrete(Axis::Vertical).unwrap_or(0.0) * 3.0
-                    });
-                    let horizontal_amount_discrete = event.amount_discrete(Axis::Horizontal);
-                    let vertical_amount_discrete = event.amount_discrete(Axis::Vertical);
-
-                    {
-                        let mut frame = AxisFrame::new(event.time_msec()).source(event.source());
-                        if horizontal_amount != 0.0 {
-                            frame = frame.value(Axis::Horizontal, horizontal_amount);
-                            if let Some(discrete) = horizontal_amount_discrete {
-                                frame = frame.discrete(Axis::Horizontal, discrete as i32);
-                            }
-                        } else if event.source() == AxisSource::Finger {
-                            frame = frame.stop(Axis::Horizontal);
-                        }
-                        if vertical_amount != 0.0 {
-                            frame = frame.value(Axis::Vertical, vertical_amount);
-                            if let Some(discrete) = vertical_amount_discrete {
-                                frame = frame.discrete(Axis::Vertical, discrete as i32);
-                            }
-                        } else if event.source() == AxisSource::Finger {
-                            frame = frame.stop(Axis::Vertical);
-                        }
-                        pointer.axis(self, frame);
-                    }
-                }
-                _ => {}
-            },
-            _ => {}
-        };
-        Ok(())
     }
 }
 
@@ -369,15 +254,6 @@ impl OutputHandler for BackgroundLayer {
         _qh: &QueueHandle<Self>,
         _output: wl_output::WlOutput,
     ) {
-    }
-}
-
-impl SeatHandler for BackgroundLayer {
-    type KeyboardFocus = EguiState;
-    type PointerFocus = EguiState;
-
-    fn seat_state(&mut self) -> &mut SeatState<Self> {
-        &mut self.seat_state
     }
 }
 
