@@ -86,9 +86,11 @@ fn main() -> Result<(), anyhow::Error> {
     let ws = WaylandSource::new(event_queue).unwrap();
     ws.insert(loop_handle).unwrap();
 
-    let host = cpal::default_host();
-    let dev = host.default_output_device().unwrap();
-    let conf = dev.default_output_config().unwrap().config();
+    let host = cpal::host_from_id(cpal::platform::HostId::Jack)?;
+    let dev = host.default_input_device().unwrap();
+    println!("{}", dev.name().unwrap());
+    let conf = dev.default_input_config().unwrap().config();
+    println!("{:?}", conf);
     let (tx, rx) = channel::channel();
     let stm = dev
         .build_input_stream(
